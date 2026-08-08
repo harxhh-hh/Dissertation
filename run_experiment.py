@@ -1,0 +1,464 @@
+"""End-to-end experiment harness.
+
+Runs every (architecture × test case × repetition) combination, then
+optionally evaluates every SRS with the LLM-as-judge rubric and produces
+the anonymised rater export.
+
+Usage::
+
+    python run_experiment.py                 # runs everything
+    python run_experiment.py --skip-evaluation
+    python run_experiment.py --skip-rater-export
+    python run_experiment.py --architectures baseline_single_prompt hierarchical
+    python run_experiment.py --cases TC-01_restaurant_app TC-04_smart_home
+
+Cost warning:
+
+    A default run at ``REPETITIONS=1``, ``MAX_REVISION_ROUNDS=1`` on the
+    four test cases is roughly 4 baseline + 4×hierarchical + 4×peer_to_peer
+    + 4×debate + (optional) 16 evaluations = **~120 LLM calls total** at
+    ``claude-opus-5``. Ballpark **~£3–£6**. Higher REPETITIONS scales
+    linearly. Print the plan and require the user to type "yes" before
+    starting.
+
+Outputs land in the standard run directory, one file per artefact:
+
+    outputs/run_<id>/
+      config.json
+      llm_interactions.jsonl
+      run.log
+      run_summary.json
+      srs_<case>_<architecture>_rep<n>.md
+      brief_<case>_<architecture>_rep<n>.json            (multi-agent only)
+      verification_<case>_<architecture>_rep<n>.json     (multi-agent only)
+      arbitration_<case>_debate_rep<n>.json              (debate only)
+      evaluation.json                                    (unless skipped)
+      rater_export_<id>/                                 (unless skipped)
+      run_manifest.json
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Any, Callable, Iterable
+
+from architectures.debate import DebateResult, run_debate
+from architectures.hierarchical import HierarchicalResult, run_hierarchical
+from architectures.peer_to_peer import PeerToPeerResult, run_peer_to_peer
+from baseline_single_prompt import BaselineResult, run_baseline
+from config.settings import ConfigurationError, Settings
+from evaluation.export_for_raters import SrsArtifact, export_for_raters
+from evaluation.rubric import EvaluationRecord, score_srs, write_evaluation
+from test_cases.cases import TEST_CASES, TestCase, get_case
+from utils.llm_client import LLMClient, LLMClientError
+from utils.logging import ExperimentLogger
+
+#: The four conditions under test. Order matters for the manifest and the
+#: report tables; keep baseline first so it appears as the reference
+#: column when tables are read left to right.
+ALL_ARCHITECTURES: tuple[str, ...] = (
+    "baseline_single_prompt",
+    "hierarchical",
+    "peer_to_peer",
+    "debate",
+)
+
+
+@dataclass
+class RunOutcome:
+    """One (architecture × case × repetition) invocation's outcome.
+
+    Attributes:
+        architecture: The condition that ran.
+        case_id: The test case identifier.
+        repetition: Zero-based repetition index.
+        srs_path: Path to the persisted SRS Markdown. ``None`` on failure.
+        error: Populated when the run failed (with the exception's
+            string form); ``None`` on success.
+    """
+
+    architecture: str
+    case_id: str
+    repetition: int
+    srs_path: Path | None = None
+    error: str | None = None
+
+
+@dataclass
+class RunManifest:
+    """Summary manifest of an experiment run, written as ``run_manifest.json``.
+
+    Attributes:
+        run_id: The run identifier.
+        settings: Redacted settings snapshot.
+        outcomes: One entry per (architecture, case, repetition) attempted.
+        evaluation_path: Path to the evaluation output, if written.
+        rater_export_path: Path to the rater export directory, if written.
+    """
+
+    run_id: str
+    settings: dict[str, Any] = field(default_factory=dict)
+    outcomes: list[dict[str, Any]] = field(default_factory=list)
+    evaluation_path: str | None = None
+    rater_export_path: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serialisable snapshot."""
+        return {
+            "run_id": self.run_id,
+            "settings": self.settings,
+            "outcomes": self.outcomes,
+            "evaluation_path": self.evaluation_path,
+            "rater_export_path": self.rater_export_path,
+        }
+
+
+# =========================================================================
+# Argument parsing
+# =========================================================================
+
+
+def _parse_args(argv: list[str] | None) -> argparse.Namespace:
+    """Parse command-line arguments.
+
+    Args:
+        argv: The argument list to parse, or ``None`` to use ``sys.argv``.
+
+    Returns:
+        The parsed namespace.
+    """
+    parser = argparse.ArgumentParser(description=__doc__)
+    # Both plural and singular flag names are accepted so scripted
+    # invocations that pass a single value read naturally
+    # (``--architecture hierarchical`` instead of ``--architectures``).
+    parser.add_argument(
+        "--architectures", "--architecture",
+        nargs="+", choices=ALL_ARCHITECTURES,
+        default=list(ALL_ARCHITECTURES),
+        help="Restrict the run to a subset of architectures.",
+    )
+    parser.add_argument(
+        "--cases", "--case",
+        nargs="+",
+        default=[c.case_id for c in TEST_CASES],
+        help=(
+            "Restrict the run to specific test cases. Accepts either full "
+            "case IDs (e.g. 'TC-01_restaurant_app') or unique substrings "
+            "of them (e.g. 'restaurant_app')."
+        ),
+    )
+    parser.add_argument(
+        "--skip-evaluation", action="store_true",
+        help="Skip the LLM-as-judge scoring step.",
+    )
+    parser.add_argument(
+        "--skip-rater-export", action="store_true",
+        help="Skip the anonymised export for human raters.",
+    )
+    parser.add_argument(
+        "--yes", action="store_true",
+        help="Skip the interactive confirmation prompt.",
+    )
+    return parser.parse_args(argv)
+
+
+# =========================================================================
+# Runner
+# =========================================================================
+
+
+def _persist_multi_agent_artefacts(
+    *,
+    run_dir: Path,
+    architecture: str,
+    result: HierarchicalResult | PeerToPeerResult | DebateResult,
+) -> Path:
+    """Write SRS, brief, verification, and (if debate) arbitration files.
+
+    Returns the path to the SRS Markdown.
+    """
+    slug = f"{result.case_id}_{architecture}_rep{result.repetition}"
+
+    srs_path = run_dir / f"srs_{slug}.md"
+    srs_path.write_text(result.srs_markdown, encoding="utf-8")
+
+    (run_dir / f"brief_{slug}.json").write_text(
+        json.dumps(result.brief, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (run_dir / f"verification_{slug}.json").write_text(
+        json.dumps(
+            [
+                {
+                    "round_index": r.round_index,
+                    "verdict": r.verdict,
+                    "summary": r.summary,
+                    "issues": r.issues,
+                }
+                for r in result.verification_rounds
+            ],
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    if isinstance(result, DebateResult):
+        (run_dir / f"arbitration_{slug}.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "section": a.section,
+                        "verdict": a.verdict,
+                        "rationale": a.rationale,
+                    }
+                    for a in result.arbitrations
+                ],
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+    return srs_path
+
+
+def _persist_baseline_artefact(run_dir: Path, result: BaselineResult) -> Path:
+    """Write the baseline SRS and return its path."""
+    slug = f"{result.case_id}_baseline_single_prompt_rep{result.repetition}"
+    srs_path = run_dir / f"srs_{slug}.md"
+    srs_path.write_text(result.srs_markdown, encoding="utf-8")
+    return srs_path
+
+
+def _run_one(
+    *,
+    architecture: str,
+    case: TestCase,
+    repetition: int,
+    client: LLMClient,
+    settings: Settings,
+    logger: ExperimentLogger,
+) -> Path:
+    """Run one (architecture × case × repetition), persist artefacts.
+
+    Returns the SRS path. Any exception from the run propagates so the
+    caller can record the failure and continue with the next combination.
+    """
+    run_dir = settings.run_dir
+    if architecture == "baseline_single_prompt":
+        result = run_baseline(
+            case.description, case_id=case.case_id, repetition=repetition,
+            client=client, settings=settings, logger=logger,
+        )
+        return _persist_baseline_artefact(run_dir, result)
+    if architecture == "hierarchical":
+        result = run_hierarchical(
+            case.description, case_id=case.case_id, repetition=repetition,
+            client=client, settings=settings, logger=logger,
+        )
+    elif architecture == "peer_to_peer":
+        result = run_peer_to_peer(
+            case.description, case_id=case.case_id, repetition=repetition,
+            client=client, settings=settings, logger=logger,
+        )
+    elif architecture == "debate":
+        result = run_debate(
+            case.description, case_id=case.case_id, repetition=repetition,
+            client=client, settings=settings, logger=logger,
+        )
+    else:
+        raise ValueError(f"Unknown architecture: {architecture}")
+    return _persist_multi_agent_artefacts(
+        run_dir=run_dir, architecture=architecture, result=result
+    )
+
+
+def _resolve_case_id(user_input: str) -> str:
+    """Resolve a user-supplied case name to a canonical case_id.
+
+    Accepts either the exact canonical ID (e.g. ``TC-01_restaurant_app``)
+    or any unique substring of one (e.g. ``restaurant_app``, ``TC-04``).
+
+    Args:
+        user_input: The value the user passed on the command line.
+
+    Returns:
+        The canonical case identifier.
+
+    Raises:
+        SystemExit: If the value matches nothing, or matches more than
+            one case (with a message listing the candidates).
+    """
+    known = [c.case_id for c in TEST_CASES]
+    if user_input in known:
+        return user_input
+    matches = [k for k in known if user_input in k]
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        raise SystemExit(
+            f"error: no test case matches {user_input!r}. Known: {known}"
+        )
+    raise SystemExit(
+        f"error: {user_input!r} is ambiguous; matches {matches}. Use a "
+        "more specific value or the full case_id."
+    )
+
+
+def _print_plan(architectures: list[str], cases: list[str], repetitions: int) -> None:
+    """Print a summary of the planned run and rough cost bounds to stdout."""
+    combos = len(architectures) * len(cases) * repetitions
+    print()
+    print(f"Plan:")
+    print(f"  architectures : {len(architectures)}  ({', '.join(architectures)})")
+    print(f"  test cases    : {len(cases)}  ({', '.join(cases)})")
+    print(f"  repetitions   : {repetitions}")
+    print(f"  total runs    : {combos}")
+    print(f"  each 'debate' run is ~13 LLM calls;")
+    print(f"  each 'peer_to_peer' run is ~8; hierarchical ~5–8; baseline 1.")
+    print()
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Entry point. Returns a Unix-style exit code."""
+    args = _parse_args(argv)
+    try:
+        settings = Settings.from_env()
+    except ConfigurationError as exc:
+        print(f"Configuration error: {exc}", file=sys.stderr)
+        return 2
+
+    try:
+        cases = [get_case(_resolve_case_id(c)) for c in args.cases]
+    except SystemExit:
+        raise
+    architectures = list(args.architectures)
+
+    _print_plan(architectures, args.cases, settings.repetitions)
+    if not args.yes:
+        try:
+            response = input("Proceed? [type 'yes' to run]: ").strip().lower()
+        except EOFError:
+            response = ""
+        if response != "yes":
+            print("Aborted by user.")
+            return 130
+
+    settings.apply_seed()
+
+    with ExperimentLogger.for_run(settings) as logger:
+        client = LLMClient(settings, logger)
+
+        manifest = RunManifest(run_id=settings.run_id, settings=settings.to_dict())
+        outcomes: list[RunOutcome] = []
+        artefacts_by_key: dict[tuple[str, str, int], Path] = {}
+
+        # ---- Main matrix ------------------------------------------------
+        for architecture in architectures:
+            for case in cases:
+                for repetition in range(settings.repetitions):
+                    logger.info(
+                        "=== %s / %s / rep %d ===", architecture, case.case_id, repetition
+                    )
+                    try:
+                        srs_path = _run_one(
+                            architecture=architecture, case=case, repetition=repetition,
+                            client=client, settings=settings, logger=logger,
+                        )
+                    except (LLMClientError, Exception) as exc:  # noqa: BLE001
+                        logger.error(
+                            "Run FAILED: %s / %s / rep %d: %s",
+                            architecture, case.case_id, repetition, exc, exc_info=True,
+                        )
+                        outcomes.append(RunOutcome(
+                            architecture=architecture, case_id=case.case_id,
+                            repetition=repetition, error=str(exc),
+                        ))
+                        continue
+                    outcomes.append(RunOutcome(
+                        architecture=architecture, case_id=case.case_id,
+                        repetition=repetition, srs_path=srs_path,
+                    ))
+                    artefacts_by_key[(architecture, case.case_id, repetition)] = srs_path
+
+        manifest.outcomes = [asdict(o) | ({"srs_path": str(o.srs_path)} if o.srs_path else {})
+                              for o in outcomes]
+
+        # ---- Evaluation --------------------------------------------------
+        if not args.skip_evaluation and artefacts_by_key:
+            logger.info("=== evaluation ===")
+            eval_records = _run_evaluation(
+                artefacts_by_key=artefacts_by_key, cases=cases,
+                client=client, logger=logger,
+            )
+            eval_path = settings.run_dir / "evaluation.json"
+            write_evaluation(eval_records, eval_path)
+            manifest.evaluation_path = str(eval_path)
+
+        # ---- Rater export ------------------------------------------------
+        if not args.skip_rater_export and artefacts_by_key:
+            logger.info("=== rater export ===")
+            artefacts = [
+                SrsArtifact(
+                    case_id=case_id, architecture=arch, repetition=rep,
+                    srs_path=path,
+                    description=get_case(case_id).description,
+                )
+                for (arch, case_id, rep), path in artefacts_by_key.items()
+            ]
+            export_result = export_for_raters(artefacts, settings=settings)
+            manifest.rater_export_path = str(export_result.export_dir)
+
+        # ---- Manifest ----------------------------------------------------
+        (settings.run_dir / "run_manifest.json").write_text(
+            json.dumps(manifest.to_dict(), indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+    failed = sum(1 for o in outcomes if o.error is not None)
+    print(f"\nDone: {len(outcomes) - failed}/{len(outcomes)} runs succeeded.")
+    return 0 if failed == 0 else 1
+
+
+def _run_evaluation(
+    *,
+    artefacts_by_key: dict[tuple[str, str, int], Path],
+    cases: Iterable[TestCase],
+    client: LLMClient,
+    logger: ExperimentLogger,
+) -> list[EvaluationRecord]:
+    """Run the LLM-as-judge scorer on every produced SRS.
+
+    Failures are logged and skipped so a single bad score does not abort
+    the whole evaluation pass.
+    """
+    case_by_id = {c.case_id: c for c in cases}
+    records: list[EvaluationRecord] = []
+    for (architecture, case_id, repetition), srs_path in artefacts_by_key.items():
+        try:
+            srs_markdown = srs_path.read_text(encoding="utf-8")
+            record = score_srs(
+                case_id=case_id, architecture=architecture, repetition=repetition,
+                description=case_by_id[case_id].description,
+                srs_markdown=srs_markdown, client=client,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "Evaluation FAILED for %s / %s / rep %d: %s",
+                architecture, case_id, repetition, exc, exc_info=True,
+            )
+            continue
+        records.append(record)
+    return records
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+
+
+# Keep ``Callable`` referenced for future extension; documents that
+# ``_run_one``'s dispatch table could be lifted to a mapping later.
+_ = Callable

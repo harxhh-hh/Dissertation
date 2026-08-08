@@ -1,0 +1,24 @@
+# Runtime dependencies.
+#
+# Each dependency is justified in README.md ("Dependencies and their
+# justification"). Versions are pinned to a compatible-release range so that
+# the environment can be reconstructed by the supervisor and moderator.
+#
+# Install with:  pip install -r requirements.txt
+
+# Official Anthropic SDK. Provides the Messages API client, typed response
+# objects (token usage, stop reasons), streaming, and automatic retry with
+# exponential backoff on HTTP 429/5xx.
+anthropic>=0.75,<1.0
+
+# Reads key=value pairs from a local .env file into the process environment,
+# so that the API key is never written into source code or committed.
+python-dotenv>=1.0,<2.0
+
+# Official Groq SDK. Provides an OpenAI-compatible Chat Completions client
+# (`response_format={"type": "json_object"}` for structured output,
+# `prompt_tokens`/`completion_tokens` usage fields) and automatic retry
+# with exponential backoff on HTTP 429/5xx. Used when LLM_PROVIDER=groq.
+# Only one of `anthropic` or `groq` is exercised per run; both remain
+# available so the provider can be swapped by editing .env alone.
+groq>=0.9,<1.0

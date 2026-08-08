@@ -42,7 +42,7 @@ EffortLevel = Literal["low", "medium", "high", "xhigh", "max"]
 ThinkingMode = Literal["adaptive", "disabled"]
 
 #: LLM providers supported by this project.
-LLMProvider = Literal["groq", "anthropic"]
+LLMProvider = Literal["groq", "anthropic", "ollama"]
 
 _VALID_EFFORT: Final[frozenset[str]] = frozenset(
     {"low", "medium", "high", "xhigh", "max"}
@@ -51,7 +51,15 @@ _VALID_THINKING: Final[frozenset[str]] = frozenset({"adaptive", "disabled"})
 _VALID_LOG_LEVEL: Final[frozenset[str]] = frozenset(
     {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 )
-_VALID_PROVIDER: Final[frozenset[str]] = frozenset({"groq", "anthropic"})
+_VALID_PROVIDER: Final[frozenset[str]] = frozenset({"groq", "anthropic", "ollama"})
+
+#: Default Ollama server URL. Ollama serves an OpenAI-compatible endpoint
+#: from a local process (``ollama serve``); the default port is 11434.
+_DEFAULT_OLLAMA_BASE_URL: Final[str] = "http://localhost:11434"
+
+#: Default Ollama model tag when ``OLLAMA_MODEL`` is unset. A small,
+#: broadly-available default that most Ollama installs can pull quickly.
+_DEFAULT_OLLAMA_MODEL: Final[str] = "mistral"
 
 #: Effort levels at which the API rejects ``thinking={"type": "disabled"}``.
 #: Documented behaviour of ``claude-opus-5``; validated here so the run fails
@@ -146,6 +154,49 @@ def _get_choice(name: str, default: str, allowed: frozenset[str]) -> str:
     return value
 
 
+#: Substrings that, if found (case-insensitively) in an API key value,
+#: mark it as almost certainly a placeholder rather than a real credential.
+#: Real API keys are opaque random tokens; none of the providers this
+#: project supports issue keys containing English words like these.
+_PLACEHOLDER_MARKERS: Final[tuple[str, ...]] = (
+    "replace",
+    "your_actual",
+    "your-actual",
+    "youractual",
+    "your_key",
+    "your-key",
+    "placeholder",
+    "changeme",
+    "change_me",
+    "change-me",
+    "xxxxxxxx",
+    "insert_key",
+    "paste_your",
+    "paste-your",
+    "todo",
+)
+
+
+def _looks_like_placeholder(key: str) -> bool:
+    """Heuristically detect an unfilled example value in an API key field.
+
+    Catches both the exact strings shipped in ``.env.example`` (e.g.
+    ``sk-ant-REPLACE-ME``) and values a user produced by copying an
+    *example command* verbatim instead of substituting their real key
+    (e.g. ``gsk_your_actual_key``, taken literally from an instruction
+    that meant it as a placeholder to replace).
+
+    Args:
+        key: The candidate credential value (already stripped).
+
+    Returns:
+        ``True`` if the value looks like a placeholder rather than a real
+        credential.
+    """
+    lowered = key.lower()
+    return any(marker in lowered for marker in _PLACEHOLDER_MARKERS)
+
+
 def _utc_timestamp_slug() -> str:
     """Return a filesystem-safe UTC timestamp, e.g. ``2026-07-26T14-05-33Z``."""
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
@@ -166,21 +217,34 @@ class Settings:
     for writing into the run directory.
 
     Attributes:
-        llm_provider: Which back-end to use (``groq`` or ``anthropic``).
+        llm_provider: Which back-end to use (``groq``, ``anthropic``, or
+            ``ollama``).
         anthropic_api_key: Credential for the Anthropic Messages API. Empty
             when ``llm_provider != "anthropic"``. Never logged or
             serialised; :meth:`to_dict` redacts it.
         groq_api_key: Credential for the Groq API. Empty when
             ``llm_provider != "groq"``. Never logged or serialised;
             :meth:`to_dict` redacts it.
-        model_id: Model identifier used by every agent in every condition.
+        ollama_base_url: URL of the Ollama server (typically local). Used
+            only when ``llm_provider == "ollama"``. Not sensitive; NOT
+            redacted in :meth:`__repr__` or :meth:`to_dict`.
+        ollama_model: Model tag to pull from Ollama (e.g. ``mistral``,
+            ``llama3.1``, ``qwen2.5-coder``). Used only when
+            ``llm_provider == "ollama"``. Note the intentional overlap
+            with ``model_id``: keeping the fields separate matches how
+            Ollama users typically think about local model tags, but
+            when ``provider == "ollama"`` this field wins over
+            ``model_id`` for the effective model choice.
+        model_id: Model identifier used by every agent in every condition
+            for the Anthropic and Groq providers. For the Ollama provider
+            see ``ollama_model``.
         max_tokens: Upper bound on output tokens per LLM call.
         effort: Reasoning-effort level passed as ``output_config.effort``
-            on Anthropic. Ignored when ``llm_provider == "groq"``
-            (recorded in ``config.json`` for provenance).
+            on Anthropic. Ignored when ``llm_provider`` is ``groq`` or
+            ``ollama`` (recorded in ``config.json`` for provenance).
         thinking_mode: Extended-thinking mode (``adaptive`` or
-            ``disabled``). Ignored when ``llm_provider == "groq"``
-            (recorded in ``config.json`` for provenance).
+            ``disabled``). Ignored when ``llm_provider`` is ``groq`` or
+            ``ollama`` (recorded in ``config.json`` for provenance).
         random_seed: Seed for all Python-side randomness.
         max_revision_rounds: Cap on Verification-Agent-triggered revisions.
         repetitions: Independent repetitions per (architecture, test case) pair.
@@ -194,6 +258,8 @@ class Settings:
     llm_provider: LLMProvider
     anthropic_api_key: str
     groq_api_key: str
+    ollama_base_url: str
+    ollama_model: str
     model_id: str
     max_tokens: int
     effort: EffortLevel
@@ -241,7 +307,8 @@ class Settings:
         thinking_mode = _get_choice("THINKING_MODE", "adaptive", _VALID_THINKING)
 
         # The EFFORT/THINKING interaction check applies only to the
-        # Anthropic path; on Groq these values are ignored anyway.
+        # Anthropic path; on Groq and Ollama these values are ignored
+        # anyway (and are recorded in config.json for provenance).
         if (
             provider == "anthropic"
             and thinking_mode == "disabled"
@@ -255,7 +322,8 @@ class Settings:
 
         # Require only the credential for the selected provider. Store the
         # other as empty rather than requiring both, so a user set up for
-        # one provider does not need a dummy key for the other.
+        # one provider does not need a dummy key for the other. Ollama is
+        # keyless — it talks to a local server — so no credential check.
         anthropic_key = _get_str("ANTHROPIC_API_KEY", "")
         groq_key = _get_str("GROQ_API_KEY", "")
         if provider == "anthropic" and not anthropic_key:
@@ -268,19 +336,35 @@ class Settings:
                 "LLM_PROVIDER=groq but GROQ_API_KEY is missing or empty. "
                 "Set it in .env."
             )
-        # Explicit placeholder detection, but only for the ACTIVE provider —
-        # an unused-provider key that still holds its placeholder should
-        # not block a run using the other provider.
-        if provider == "anthropic" and anthropic_key == "sk-ant-REPLACE-ME":
+        # Placeholder detection, but only for the ACTIVE provider — an
+        # unused-provider key that still holds its placeholder should not
+        # block a run using the other provider. Uses a heuristic rather
+        # than an exact-string match against .env.example, because a user
+        # who follows an example command literally (e.g. copies
+        # 'GROQ_API_KEY=gsk_your_actual_key' from an instruction verbatim
+        # instead of substituting their real key) produces a placeholder
+        # that isn't byte-identical to anything in .env.example but is
+        # obviously not a credential either.
+        if provider == "anthropic" and _looks_like_placeholder(anthropic_key):
             raise ConfigurationError(
-                "ANTHROPIC_API_KEY still holds the placeholder value from "
-                ".env.example. Set a real key in .env."
+                f"ANTHROPIC_API_KEY={anthropic_key!r} looks like a "
+                "placeholder, not a real credential. Get a real key from "
+                "https://console.anthropic.com/settings/keys and set it "
+                "in .env."
             )
-        if provider == "groq" and groq_key in ("gsk-REPLACE-ME", "gsk_REPLACE-ME"):
+        if provider == "groq" and _looks_like_placeholder(groq_key):
             raise ConfigurationError(
-                "GROQ_API_KEY still holds the placeholder value from "
-                ".env.example. Set a real key in .env."
+                f"GROQ_API_KEY={groq_key!r} looks like a placeholder, not "
+                "a real credential. Get a real key from "
+                "https://console.groq.com/keys and set it in .env."
             )
+
+        # Ollama configuration. Both fields have sensible defaults so a
+        # user who sets LLM_PROVIDER=ollama and nothing else still gets a
+        # workable configuration (talks to localhost:11434 and asks for
+        # the `mistral` tag).
+        ollama_base_url = _get_str("OLLAMA_BASE_URL", _DEFAULT_OLLAMA_BASE_URL)
+        ollama_model = _get_str("OLLAMA_MODEL", _DEFAULT_OLLAMA_MODEL)
 
         output_dir_raw = _get_str("OUTPUT_DIR", "outputs")
         output_dir = Path(output_dir_raw)
@@ -290,15 +374,21 @@ class Settings:
         # A provider-appropriate default for MODEL_ID, so a run that
         # forgets to set it still produces something meaningful. Real
         # runs should always set MODEL_ID explicitly for provenance.
-        default_model = (
-            "claude-opus-5" if provider == "anthropic"
-            else "llama-3.3-70b-versatile"
-        )
+        # For Ollama, `ollama_model` is the effective model choice; the
+        # `model_id` default mirrors it so logs are still consistent.
+        if provider == "anthropic":
+            default_model = "claude-opus-5"
+        elif provider == "groq":
+            default_model = "llama-3.3-70b-versatile"
+        else:  # provider == "ollama"
+            default_model = ollama_model
 
         settings = cls(
             llm_provider=provider,  # type: ignore[arg-type]  # validated
             anthropic_api_key=anthropic_key,
             groq_api_key=groq_key,
+            ollama_base_url=ollama_base_url,
+            ollama_model=ollama_model,
             model_id=_get_str("MODEL_ID", default_model),
             max_tokens=_get_int("MAX_TOKENS", 16000, minimum=1),
             effort=effort,  # type: ignore[arg-type]  # validated against _VALID_EFFORT
@@ -321,6 +411,22 @@ class Settings:
     def run_dir(self) -> Path:
         """Directory holding every artefact produced by this run."""
         return self.output_dir / f"run_{self.run_id}"
+
+    @property
+    def effective_model_id(self) -> str:
+        """The model name actually sent to the provider on every call.
+
+        For ``anthropic`` and ``groq`` this is ``model_id``. For
+        ``ollama`` it is ``ollama_model`` — the two fields intentionally
+        overlap (see the ``ollama_model`` docstring), and this property
+        is the single place that resolves the overlap, so log records,
+        error messages, and the backend itself never have to repeat the
+        ``if provider == "ollama"`` check independently and risk
+        disagreeing with each other.
+        """
+        if self.llm_provider == "ollama":
+            return self.ollama_model
+        return self.model_id
 
     def thinking_param(self) -> dict[str, str]:
         """Return the ``thinking`` parameter for an Anthropic Messages request."""
@@ -358,7 +464,11 @@ class Settings:
         This snapshot is written to ``config.json`` in the run directory and is
         the authoritative record of how a run was configured. Both provider
         keys are redacted whether or not they were used, so a config file
-        never leaks a key even if the run was misconfigured.
+        never leaks a key even if the run was misconfigured. Ollama fields
+        (``ollama_base_url`` / ``ollama_model``) are non-sensitive and are
+        included at their configured values regardless of the active
+        provider — recording both the "active" and the "if I swapped" values
+        makes a config snapshot self-descriptive for a moderator.
         """
         data = asdict(self)
         data["anthropic_api_key"] = "<redacted>"
@@ -368,12 +478,19 @@ class Settings:
         return data
 
     def __repr__(self) -> str:  # pragma: no cover - debugging convenience
-        """Return a representation that cannot leak either API key."""
+        """Return a representation that cannot leak either API key.
+
+        Ollama fields are shown verbatim (no credential to leak); the
+        provider-specific key fields remain redacted regardless of which
+        provider is active.
+        """
         return (
             f"Settings(run_id={self.run_id!r}, llm_provider={self.llm_provider!r}, "
             f"model_id={self.model_id!r}, effort={self.effort!r}, "
             f"thinking_mode={self.thinking_mode!r}, random_seed={self.random_seed}, "
             f"repetitions={self.repetitions}, "
             f"max_revision_rounds={self.max_revision_rounds}, "
+            f"ollama_base_url={self.ollama_base_url!r}, "
+            f"ollama_model={self.ollama_model!r}, "
             f"anthropic_api_key='<redacted>', groq_api_key='<redacted>')"
         )

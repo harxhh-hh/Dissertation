@@ -6,7 +6,7 @@ Every agent in every architecture reaches the network through
 provider is selected by ``Settings.llm_provider``. Switching from Anthropic
 to Groq (or back) is a ``.env`` edit; no source file has to change.
 
-Two supported providers:
+Three supported providers:
 
 * ``anthropic`` — Anthropic Messages API (``claude-opus-5`` etc.).
   Supports ``output_config.format`` (JSON Schema) for structured outputs
@@ -15,6 +15,14 @@ Two supported providers:
   OpenAI-compatible). Structured outputs use ``response_format=
   {"type": "json_object"}`` with the JSON Schema embedded in the user
   message; no equivalent of extended thinking or the effort parameter.
+* ``ollama`` — local Ollama server (default ``http://localhost:11434``),
+  native ``/api/chat`` endpoint. No SDK dependency — the endpoint is
+  simple enough that the standard library's ``urllib`` avoids adding a
+  third-party package for a single provider (see README "Dependencies
+  and their justification"). Structured outputs pass the JSON Schema
+  directly as Ollama's ``format`` field, which constrains decoding at
+  the token level on Ollama >= 0.5 (grammar-based), a stronger guarantee
+  than Groq's ``json_object`` mode.
 
 Design notes worth flagging for a reviewer:
 
@@ -36,6 +44,8 @@ Design notes worth flagging for a reviewer:
 from __future__ import annotations
 
 import json
+import urllib.error
+import urllib.request
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Mapping
@@ -293,6 +303,168 @@ class GroqBackend(LLMBackend):
 
 
 # --------------------------------------------------------------------------
+# Ollama backend
+# --------------------------------------------------------------------------
+
+
+class OllamaAPIError(Exception):
+    """Raised when the Ollama HTTP API returns an error or is unreachable.
+
+    There is no official Ollama Python SDK to import an exception type
+    from (this backend talks to the local HTTP API directly), so this
+    class plays the same role ``anthropic.APIError`` /
+    ``groq.APIError`` play for the other two backends: it is what
+    :class:`LLMClient` catches, logs, and re-raises.
+
+    Attributes:
+        status_code: The HTTP status code, when the failure was an HTTP
+            error response. ``None`` for connection-level failures
+            (server not running, DNS failure, etc.).
+    """
+
+    def __init__(self, message: str, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+#: Mapping from Ollama's ``done_reason`` to the common vocabulary used by
+#: downstream code. Ollama has no equivalent of ``tool_use``, ``refusal``,
+#: or ``pause_turn`` — this project never asks it to call tools, so those
+#: values are not expected in practice; any unrecognised value is passed
+#: through unchanged rather than silently coerced.
+_OLLAMA_DONE_REASON_MAP: dict[str, str] = {
+    "stop": "end_turn",
+    "length": "max_tokens",
+}
+
+
+class OllamaBackend(LLMBackend):
+    """Local Ollama server backend (native ``/api/chat`` endpoint)."""
+
+    def __init__(self, settings: Settings) -> None:
+        self._base_url = settings.ollama_base_url.rstrip("/")
+        self.api_error_type = OllamaAPIError
+        # Fail at construction time with a clear, actionable message
+        # rather than deep inside a multi-agent run's first call — "is
+        # the server even running" is by far the most common Ollama
+        # failure mode (forgetting to run `ollama serve`).
+        self._check_server_reachable()
+
+    def _check_server_reachable(self) -> None:
+        """Probe the server so an unreachable Ollama fails fast and clearly.
+
+        Raises:
+            LLMClientError: If the server does not respond within a short
+                timeout. Uses a fixed 5-second probe timeout regardless of
+                ``request_timeout_seconds`` — this is a liveness check,
+                not a real request, and should not make the caller wait
+                through a long configured timeout just to find out the
+                server is down.
+        """
+        try:
+            urllib.request.urlopen(f"{self._base_url}/api/tags", timeout=5)
+        except (urllib.error.URLError, OSError) as exc:
+            raise LLMClientError(
+                f"Cannot reach Ollama server at {self._base_url!r}. Is it "
+                f"running? Start it with 'ollama serve' (or check "
+                f"OLLAMA_BASE_URL in .env if it's on a different host or "
+                f"port). Underlying error: {exc}"
+            ) from exc
+
+    def issue_call(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        settings: Settings,
+        output_schema: Mapping[str, Any] | None,
+    ) -> BackendResult:
+        effective_prompt = user_prompt
+        request_format: Any = None
+        if output_schema is not None:
+            # Ollama >= 0.5 accepts a JSON Schema object directly as
+            # `format`, which constrains decoding at the token level
+            # (grammar-based) so the output is guaranteed structurally
+            # valid. The short textual nudge below is a cheap backstop
+            # for older servers where `format` degrades to loose
+            # "valid JSON" enforcement rather than schema-shaped JSON.
+            request_format = dict(output_schema)
+            effective_prompt = (
+                user_prompt
+                + "\n\nRespond with a single JSON object only — no prose, "
+                "no Markdown code fences."
+            )
+
+        request_params: dict[str, Any] = {
+            "model": settings.ollama_model,
+            "base_url": self._base_url,
+            "num_predict": settings.max_tokens,
+        }
+        if request_format is not None:
+            request_params["format"] = "json_schema"
+        # Provenance markers: this project's other two backends use
+        # effort/thinking; Ollama has neither, but recording the
+        # configured (unused) values keeps config.json self-describing
+        # if a moderator diffs runs across providers.
+        request_params["effort_ignored"] = settings.effort
+        request_params["thinking_ignored"] = settings.thinking_mode
+
+        payload: dict[str, Any] = {
+            "model": settings.ollama_model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": effective_prompt},
+            ],
+            "stream": False,
+            "options": {"num_predict": settings.max_tokens},
+        }
+        if request_format is not None:
+            payload["format"] = request_format
+
+        body = json.dumps(payload).encode("utf-8")
+        request = urllib.request.Request(
+            f"{self._base_url}/api/chat",
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(
+                request, timeout=settings.request_timeout_seconds
+            ) as response:
+                raw = response.read()
+        except urllib.error.HTTPError as exc:
+            error_body = exc.read().decode("utf-8", errors="replace")
+            raise OllamaAPIError(
+                f"Ollama returned HTTP {exc.code} for model "
+                f"{settings.ollama_model!r}: {error_body}",
+                status_code=exc.code,
+            ) from exc
+        except (urllib.error.URLError, OSError) as exc:
+            raise OllamaAPIError(
+                f"Could not reach Ollama at {self._base_url!r}: {exc}"
+            ) from exc
+
+        data = json.loads(raw)
+        text = (data.get("message") or {}).get("content", "") or ""
+        done_reason_raw = data.get("done_reason", "stop")
+        stop_reason = _OLLAMA_DONE_REASON_MAP.get(done_reason_raw, done_reason_raw)
+
+        # Ollama reports prompt_eval_count/eval_count; no cache accounting
+        # (there is no server-side prompt cache to report on).
+        usage = TokenUsage(
+            input_tokens=int(data.get("prompt_eval_count", 0) or 0),
+            output_tokens=int(data.get("eval_count", 0) or 0),
+        )
+        return BackendResult(
+            text=text,
+            stop_reason=stop_reason,
+            usage=usage,
+            request_params=request_params,
+        )
+
+
+# --------------------------------------------------------------------------
 # Backend factory
 # --------------------------------------------------------------------------
 
@@ -316,6 +488,8 @@ def build_backend(settings: Settings) -> LLMBackend:
             return AnthropicBackend(settings)
         if provider == "groq":
             return GroqBackend(settings)
+        if provider == "ollama":
+            return OllamaBackend(settings)
     except ImportError as exc:
         raise LLMClientError(
             f"LLM_PROVIDER={provider!r} is selected, but its SDK is not "
@@ -405,12 +579,12 @@ class LLMClient:
                 case_id=case_id,
                 repetition=repetition,
                 phase=phase,
-                model=self._settings.model_id,
+                model=self._settings.effective_model_id,
                 system_prompt=system_prompt,
                 messages=request_messages,
                 request_params={
                     "provider": self._settings.llm_provider,
-                    "model": self._settings.model_id,
+                    "model": self._settings.effective_model_id,
                 },
                 response_text="",
                 stop_reason=None,
@@ -439,7 +613,7 @@ class LLMClient:
             case_id=case_id,
             repetition=repetition,
             phase=phase,
-            model=self._settings.model_id,
+            model=self._settings.effective_model_id,
             system_prompt=system_prompt,
             messages=request_messages,
             request_params=request_params,
@@ -565,6 +739,8 @@ __all__ = [
     "LLMCallResult",
     "LLMClient",
     "LLMClientError",
+    "OllamaAPIError",
+    "OllamaBackend",
     "build_backend",
     "call_llm",
 ]

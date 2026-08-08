@@ -328,6 +328,25 @@ class ExperimentLogger:
 
         return logger
 
+    # -- external handlers ---------------------------------------------------
+
+    def add_handler(self, handler: logging.Handler) -> None:
+        """Attach an extra handler to the run's narrative logger.
+
+        Lets a caller (e.g. the Streamlit UI) observe the same INFO/WARNING/
+        ERROR narrative lines already written to ``run.log`` and the console
+        — without this module knowing anything about who's listening. The
+        handler receives every record from the moment it is attached, in
+        the same thread that issues the LLM calls, so a handler that pushes
+        into a UI placeholder sees updates as soon as each call completes.
+
+        Args:
+            handler: A configured ``logging.Handler``. Its own formatter (if
+                any) is left untouched; a plain default formatter is not
+                imposed so the caller controls the display format.
+        """
+        self._logger.addHandler(handler)
+
     # -- narrative logging --------------------------------------------------
 
     def debug(self, message: str, *args: Any) -> None:

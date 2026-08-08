@@ -322,6 +322,109 @@ def _print_plan(architectures: list[str], cases: list[str], repetitions: int) ->
     print()
 
 
+def run_matrix(
+    *,
+    settings: Settings,
+    architectures: list[str],
+    cases: list[TestCase],
+    client: LLMClient,
+    logger: ExperimentLogger,
+    skip_evaluation: bool = False,
+    skip_rater_export: bool = False,
+) -> tuple[RunManifest, list[RunOutcome]]:
+    """Run the full (architecture x case x repetition) matrix and post-steps.
+
+    This is the reusable core of the experiment harness: everything
+    ``main()`` does after the CLI has resolved its arguments into concrete
+    values and opened a logger/client, up to (but not including) printing
+    the final human-readable summary line. Factored out so a non-CLI caller
+    (the Streamlit UI) can drive the exact same logic — same artefact
+    layout, same logging, same manifest — without going through argparse
+    or the interactive confirmation prompt.
+
+    Args:
+        settings: Resolved run configuration.
+        architectures: Architecture names to run (subset of
+            :data:`ALL_ARCHITECTURES`).
+        cases: Test cases to run.
+        client: The shared LLM client for this run.
+        logger: The active experiment logger.
+        skip_evaluation: If ``True``, skip the LLM-as-judge scoring step.
+        skip_rater_export: If ``True``, skip the anonymised rater export.
+
+    Returns:
+        A tuple of the written :class:`RunManifest` and the list of
+        per-combination :class:`RunOutcome` (including failed ones).
+    """
+    manifest = RunManifest(run_id=settings.run_id, settings=settings.to_dict())
+    outcomes: list[RunOutcome] = []
+    artefacts_by_key: dict[tuple[str, str, int], Path] = {}
+
+    # ---- Main matrix ------------------------------------------------
+    for architecture in architectures:
+        for case in cases:
+            for repetition in range(settings.repetitions):
+                logger.info(
+                    "=== %s / %s / rep %d ===", architecture, case.case_id, repetition
+                )
+                try:
+                    srs_path = _run_one(
+                        architecture=architecture, case=case, repetition=repetition,
+                        client=client, settings=settings, logger=logger,
+                    )
+                except (LLMClientError, Exception) as exc:  # noqa: BLE001
+                    logger.error(
+                        "Run FAILED: %s / %s / rep %d: %s",
+                        architecture, case.case_id, repetition, exc, exc_info=True,
+                    )
+                    outcomes.append(RunOutcome(
+                        architecture=architecture, case_id=case.case_id,
+                        repetition=repetition, error=str(exc),
+                    ))
+                    continue
+                outcomes.append(RunOutcome(
+                    architecture=architecture, case_id=case.case_id,
+                    repetition=repetition, srs_path=srs_path,
+                ))
+                artefacts_by_key[(architecture, case.case_id, repetition)] = srs_path
+
+    manifest.outcomes = [asdict(o) | ({"srs_path": str(o.srs_path)} if o.srs_path else {})
+                          for o in outcomes]
+
+    # ---- Evaluation --------------------------------------------------
+    if not skip_evaluation and artefacts_by_key:
+        logger.info("=== evaluation ===")
+        eval_records = _run_evaluation(
+            artefacts_by_key=artefacts_by_key, cases=cases,
+            client=client, logger=logger,
+        )
+        eval_path = settings.run_dir / "evaluation.json"
+        write_evaluation(eval_records, eval_path)
+        manifest.evaluation_path = str(eval_path)
+
+    # ---- Rater export ------------------------------------------------
+    if not skip_rater_export and artefacts_by_key:
+        logger.info("=== rater export ===")
+        artefacts = [
+            SrsArtifact(
+                case_id=case_id, architecture=arch, repetition=rep,
+                srs_path=path,
+                description=get_case(case_id).description,
+            )
+            for (arch, case_id, rep), path in artefacts_by_key.items()
+        ]
+        export_result = export_for_raters(artefacts, settings=settings)
+        manifest.rater_export_path = str(export_result.export_dir)
+
+    # ---- Manifest ----------------------------------------------------
+    (settings.run_dir / "run_manifest.json").write_text(
+        json.dumps(manifest.to_dict(), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    return manifest, outcomes
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point. Returns a Unix-style exit code."""
     args = _parse_args(argv)
@@ -351,71 +454,11 @@ def main(argv: list[str] | None = None) -> int:
 
     with ExperimentLogger.for_run(settings) as logger:
         client = LLMClient(settings, logger)
-
-        manifest = RunManifest(run_id=settings.run_id, settings=settings.to_dict())
-        outcomes: list[RunOutcome] = []
-        artefacts_by_key: dict[tuple[str, str, int], Path] = {}
-
-        # ---- Main matrix ------------------------------------------------
-        for architecture in architectures:
-            for case in cases:
-                for repetition in range(settings.repetitions):
-                    logger.info(
-                        "=== %s / %s / rep %d ===", architecture, case.case_id, repetition
-                    )
-                    try:
-                        srs_path = _run_one(
-                            architecture=architecture, case=case, repetition=repetition,
-                            client=client, settings=settings, logger=logger,
-                        )
-                    except (LLMClientError, Exception) as exc:  # noqa: BLE001
-                        logger.error(
-                            "Run FAILED: %s / %s / rep %d: %s",
-                            architecture, case.case_id, repetition, exc, exc_info=True,
-                        )
-                        outcomes.append(RunOutcome(
-                            architecture=architecture, case_id=case.case_id,
-                            repetition=repetition, error=str(exc),
-                        ))
-                        continue
-                    outcomes.append(RunOutcome(
-                        architecture=architecture, case_id=case.case_id,
-                        repetition=repetition, srs_path=srs_path,
-                    ))
-                    artefacts_by_key[(architecture, case.case_id, repetition)] = srs_path
-
-        manifest.outcomes = [asdict(o) | ({"srs_path": str(o.srs_path)} if o.srs_path else {})
-                              for o in outcomes]
-
-        # ---- Evaluation --------------------------------------------------
-        if not args.skip_evaluation and artefacts_by_key:
-            logger.info("=== evaluation ===")
-            eval_records = _run_evaluation(
-                artefacts_by_key=artefacts_by_key, cases=cases,
-                client=client, logger=logger,
-            )
-            eval_path = settings.run_dir / "evaluation.json"
-            write_evaluation(eval_records, eval_path)
-            manifest.evaluation_path = str(eval_path)
-
-        # ---- Rater export ------------------------------------------------
-        if not args.skip_rater_export and artefacts_by_key:
-            logger.info("=== rater export ===")
-            artefacts = [
-                SrsArtifact(
-                    case_id=case_id, architecture=arch, repetition=rep,
-                    srs_path=path,
-                    description=get_case(case_id).description,
-                )
-                for (arch, case_id, rep), path in artefacts_by_key.items()
-            ]
-            export_result = export_for_raters(artefacts, settings=settings)
-            manifest.rater_export_path = str(export_result.export_dir)
-
-        # ---- Manifest ----------------------------------------------------
-        (settings.run_dir / "run_manifest.json").write_text(
-            json.dumps(manifest.to_dict(), indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
+        _manifest, outcomes = run_matrix(
+            settings=settings, architectures=architectures, cases=cases,
+            client=client, logger=logger,
+            skip_evaluation=args.skip_evaluation,
+            skip_rater_export=args.skip_rater_export,
         )
 
     failed = sum(1 for o in outcomes if o.error is not None)

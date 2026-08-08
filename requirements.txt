@@ -19,6 +19,16 @@ python-dotenv>=1.0,<2.0
 # (`response_format={"type": "json_object"}` for structured output,
 # `prompt_tokens`/`completion_tokens` usage fields) and automatic retry
 # with exponential backoff on HTTP 429/5xx. Used when LLM_PROVIDER=groq.
-# Only one of `anthropic` or `groq` is exercised per run; both remain
-# available so the provider can be swapped by editing .env alone.
+# Only one of `anthropic`, `groq`, or the stdlib-only `ollama` backend is
+# exercised per run; all remain available so the provider can be swapped
+# by editing .env alone.
 groq>=0.9,<1.0
+
+# --- UI (optional: only needed to run `streamlit run ui/app.py`) ----------
+# The dashboard that wraps run_experiment.py with a browser UI and live log
+# streaming. Not required for the core CLI pipeline or the smoke test.
+streamlit>=1.38,<2.0
+
+# Renders a generated SRS Markdown document to a clean, self-contained HTML
+# page for the UI's "view" feature (and standalone via ui/render_html.py).
+markdown>=3.6,<4.0

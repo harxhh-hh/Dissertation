@@ -24,11 +24,12 @@ the Streamlit process and are never written to ``.env`` or to disk.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator, Mapping
+from typing import Any, Iterator, Mapping
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -43,6 +44,7 @@ from run_experiment import ALL_ARCHITECTURES, RunOutcome, run_matrix  # noqa: E4
 from test_cases.cases import TEST_CASES, get_case  # noqa: E402
 from ui.render_html import render_srs_html  # noqa: E402
 from ui.log_bridge import StreamlitLogHandler  # noqa: E402
+from ui.log_view import render_log_panel  # noqa: E402
 from utils.llm_client import LLMClient  # noqa: E402
 from utils.logging import ExperimentLogger  # noqa: E402
 
@@ -141,6 +143,41 @@ def _list_run_dirs(output_dir: Path) -> list[Path]:
 
 def _srs_files(run_dir: Path) -> list[Path]:
     return sorted(run_dir.glob("srs_*.md"))
+
+
+def _load_interactions(jsonl_path: Path) -> list[dict[str, Any]]:
+    """Flatten llm_interactions.jsonl into rows suitable for st.dataframe.
+
+    Keeps only the fields useful for a scan-at-a-glance table (full detail,
+    including the exact prompts, stays in the raw file — offered as a
+    download alongside the table).
+    """
+    rows: list[dict[str, Any]] = []
+    for line in jsonl_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        usage = record.get("usage") or {}
+        error = record.get("error") or {}
+        rows.append({
+            "timestamp": record.get("timestamp"),
+            "architecture": record.get("architecture"),
+            "agent": record.get("agent"),
+            "case_id": record.get("case_id"),
+            "repetition": record.get("repetition"),
+            "phase": record.get("phase"),
+            "model": record.get("model"),
+            "stop_reason": record.get("stop_reason"),
+            "in_tokens": usage.get("total_input_tokens", usage.get("input_tokens", 0)),
+            "out_tokens": usage.get("output_tokens", 0),
+            "latency_ms": record.get("latency_ms"),
+            "error": error.get("message", ""),
+        })
+    return rows
 
 
 def _view_srs(md_path: Path, *, key_prefix: str) -> None:
@@ -415,6 +452,47 @@ with tab_browse:
         if report_path.is_file():
             with st.expander("📊 analysis_report.md", expanded=False):
                 st.markdown(report_path.read_text(encoding="utf-8"))
+
+        log_path = selected_run / "run.log"
+        interactions_path = selected_run / "llm_interactions.jsonl"
+        with st.expander("📜 Logs", expanded=False):
+            tab_narrative, tab_interactions = st.tabs(["Narrative log", "LLM interactions"])
+            with tab_narrative:
+                if log_path.is_file() and log_path.stat().st_size > 0:
+                    components.html(
+                        render_log_panel(log_path.read_text(encoding="utf-8"), panel_id=f"log_{selected_run.name}"),
+                        height=460,
+                    )
+                    st.download_button(
+                        "Download run.log", data=log_path.read_text(encoding="utf-8"),
+                        file_name="run.log", mime="text/plain", key=f"dl_runlog_{selected_run.name}",
+                    )
+                else:
+                    st.info("No run.log for this run.")
+            with tab_interactions:
+                if interactions_path.is_file():
+                    rows = _load_interactions(interactions_path)
+                    if rows:
+                        filter_text = st.text_input(
+                            "Filter (agent, phase, architecture, error…)",
+                            key=f"filter_{selected_run.name}",
+                        )
+                        filtered = (
+                            [r for r in rows if filter_text.lower() in json.dumps(r, default=str).lower()]
+                            if filter_text else rows
+                        )
+                        st.dataframe(filtered, use_container_width=True, height=380)
+                        st.caption(f"{len(filtered)} / {len(rows)} interaction(s) shown.")
+                    else:
+                        st.info("llm_interactions.jsonl is empty.")
+                    st.download_button(
+                        "Download llm_interactions.jsonl",
+                        data=interactions_path.read_text(encoding="utf-8"),
+                        file_name="llm_interactions.jsonl", mime="application/jsonl",
+                        key=f"dl_jsonl_{selected_run.name}",
+                    )
+                else:
+                    st.info("No llm_interactions.jsonl for this run.")
 
         for md_path in srs_files:
             _view_srs(md_path, key_prefix=f"browse_{md_path.stem}")

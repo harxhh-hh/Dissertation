@@ -40,7 +40,8 @@ class TestCase:
     description: str
 
 
-#: The four test cases from the project brief.
+#: The four test cases from the project brief, plus six additional cases
+#: added to broaden domain coverage for the architecture comparison.
 TEST_CASES: Final[tuple[TestCase, ...]] = (
     TestCase(
         case_id="TC-01_restaurant_app",
@@ -86,6 +87,89 @@ TEST_CASES: Final[tuple[TestCase, ...]] = (
             "thermostats, security cameras, and door locks. It should "
             "also provide energy consumption insights and allow users to "
             "create custom automation routines."
+        ),
+    ),
+    TestCase(
+        case_id="TC-05_telehealth_platform",
+        title="Telehealth consultation platform",
+        description=(
+            "Build a telehealth platform connecting patients with doctors "
+            "for virtual consultations. Patients should be able to book "
+            "appointments, join secure video calls, and view their "
+            "prescriptions and visit history. Doctors need to write and "
+            "send e-prescriptions, review a patient's medical history "
+            "before a call, and document consultation notes. The "
+            "platform should also support insurance verification and "
+            "billing."
+        ),
+    ),
+    TestCase(
+        case_id="TC-06_mobile_banking_app",
+        title="Mobile banking app",
+        description=(
+            "Develop a mobile banking app for a retail bank's customers. "
+            "Customers should be able to check account balances, "
+            "transfer money between accounts, pay bills, and deposit "
+            "checks by photographing them. New customers should be able "
+            "to open an account and verify their identity entirely "
+            "within the app. The bank's fraud team needs to review "
+            "flagged transactions and freeze accounts when necessary."
+        ),
+    ),
+    TestCase(
+        case_id="TC-07_ecommerce_marketplace",
+        title="Online seller marketplace",
+        description=(
+            "Create an online marketplace where independent sellers can "
+            "list and sell products directly to consumers. Sellers "
+            "should be able to create storefronts, manage inventory, and "
+            "fulfil orders. Buyers should be able to search and filter "
+            "products, read and leave reviews, and track shipments. The "
+            "platform should also handle payment processing between "
+            "buyers and sellers and provide a way to resolve disputes."
+        ),
+    ),
+    TestCase(
+        case_id="TC-08_ride_sharing_platform",
+        title="Ride-sharing platform",
+        description=(
+            "Build a ride-sharing app that connects passengers with "
+            "nearby drivers. Passengers should be able to request a "
+            "ride, see the driver's estimated arrival time, track the "
+            "trip on a live map, and pay automatically at the end of the "
+            "trip. Drivers should be able to accept or decline ride "
+            "requests, navigate to pickup and drop-off locations, and "
+            "view their earnings. The platform should also let "
+            "passengers rate drivers and flag safety concerns."
+        ),
+    ),
+    TestCase(
+        case_id="TC-09_donation_platform",
+        title="Charity donation and crowdfunding platform",
+        description=(
+            "Develop an online donation platform for charities to run "
+            "fundraising campaigns. Campaign organisers should be able "
+            "to create a campaign page with a fundraising goal, post "
+            "updates, and receive donations from supporters. Donors "
+            "should be able to give one-off or recurring donations, "
+            "choose to donate anonymously, and download a receipt for "
+            "tax purposes. The platform should also give charities a "
+            "dashboard to track total funds raised and donor activity."
+        ),
+    ),
+    TestCase(
+        case_id="TC-10_recruitment_platform",
+        title="Applicant tracking system",
+        description=(
+            "Create an applicant tracking system for a company's HR team "
+            "to manage hiring. Recruiters should be able to post job "
+            "openings, review incoming applications, and move candidates "
+            "through stages of the hiring pipeline. Candidates should be "
+            "able to create a profile, apply to open roles, upload a "
+            "resume, and schedule interviews. The system should also "
+            "support running background checks on shortlisted candidates "
+            "and collecting structured interview feedback from hiring "
+            "panels."
         ),
     ),
 )

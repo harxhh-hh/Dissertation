@@ -38,9 +38,13 @@ variable is how the agents are wired together.
 
 ### Test cases (from the project brief)
 
-`test_cases/cases.py` defines four cases: a restaurant-chain mobile app, a
-web-based project management tool, a university e-learning platform, and a
-smart-home automation system.
+`test_cases/cases.py` defines ten cases spanning ten distinct domains, chosen
+so no two cases share the same regulatory profile or functional shape: a
+restaurant-chain mobile app, a web-based project management tool, a
+university e-learning platform, a smart-home automation system, a
+telehealth consultation platform, a mobile banking app, an online seller
+marketplace, a ride-sharing platform, a charity donation/crowdfunding
+platform, and an applicant tracking system.
 
 ### End-to-end architecture
 
@@ -104,7 +108,7 @@ flowchart TD
         PARSE["srs_parser.py<br/>parse_requirements() — tolerant regex parser"]
         LINT["linter.py — deterministic, NO LLM<br/>ambiguity · testability · structure · consistency"]
         DETECT["knowledge_base.py<br/>detect_domain() — exact case_id, then keyword"]
-        KBFILES[("knowledge_bases/*.json<br/>restaurant · project_management<br/>elearning · smart_home<br/>status: draft — Gate A pending")]
+        KBFILES[("knowledge_bases/*.json — 10 domains<br/>restaurant · project_management · elearning<br/>smart_home · telehealth · mobile_banking<br/>ecommerce_marketplace · ride_sharing<br/>donation_platform · recruitment_platform<br/>status: draft — Gate A pending")]
         GRADER["GroundedGraderAgent<br/>grounded_grader.py<br/>ATOMIC: fact present? yes/partial/no<br/>requirement contradicts a fact? true/false"]
         SCORE["scoring.py — deterministic, NO LLM<br/>composite = .40·coverage + .35·faithfulness + .25·quality"]
         EVALAGENT["EvaluatorAgent<br/>rubric.py — LLM only for:<br/>completeness, clarity"]
@@ -146,7 +150,7 @@ flowchart TD
 - **Solid arrows** = real control/data flow in the code. **Dotted arrows** = "calls the LLM backend" or "merges into" (kept dotted purely to reduce visual clutter from every agent individually fanning into `CALL`).
 - Every LLM call in the diagram — generation, evaluation, grounded grading, and the input guard — passes through the **same** `LLMClient.call()` (`BACKEND` subgraph), so every interaction is logged identically to `llm_interactions.jsonl` regardless of which part of the pipeline issued it.
 - Only `GroundedGraderAgent` and `EvaluatorAgent`'s two LLM-judged dimensions (completeness, clarity) involve model *judgment*. Everything in `linter.py` and `scoring.py` — ambiguity, testability, structure, consistency, coverage, faithfulness, quality, the composite score, and the final ranking — is deterministic Python arithmetic over structured data, not a model opinion.
-- `InputGuardAgent` and the knowledge-base domain gate (`detect_domain()` returning no match) are two independent pre-flight checks on the "Try your own idea" tab only — the formal tab's four test cases never need either, since they're fixed and already known-good.
+- `InputGuardAgent` and the knowledge-base domain gate (`detect_domain()` returning no match) are two independent pre-flight checks on the "Try your own idea" tab only — the formal tab's ten test cases never need either, since they're fixed and already known-good.
 
 ---
 
@@ -224,11 +228,12 @@ python run_experiment.py --skip-evaluation --skip-rater-export
 python run_experiment.py --yes   # non-interactive, e.g. from a shell script
 ```
 
-**Approximate cost at defaults** (four cases, four architectures,
+**Approximate cost at defaults** (ten cases, four architectures,
 `REPETITIONS=1`, `MAX_REVISION_ROUNDS=1`, `claude-opus-5`,
-`effort=high`): roughly 120 LLM calls in total, ballpark
-**£3–£6 per full run**. Cost scales linearly with `REPETITIONS` and
-sub-linearly with `MAX_REVISION_ROUNDS`.
+`effort=high`): roughly 300 LLM calls in total, ballpark
+**£7.50-£15 per full run**. Use `--cases` to restrict to a subset for a
+cheaper run. Cost scales linearly with `REPETITIONS` and sub-linearly
+with `MAX_REVISION_ROUNDS`.
 
 ### Analysis report
 

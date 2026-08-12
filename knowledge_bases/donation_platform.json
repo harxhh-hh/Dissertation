@@ -1,0 +1,63 @@
+{
+  "domain": "donation_platform",
+  "status": "draft",
+  "researched_at": "2026-08-12T00:00:00Z",
+  "matched_case_ids": ["TC-09_donation_platform"],
+  "keywords": ["donation", "fundraising", "charity", "nonprofit", "campaign", "crowdfunding", "donor", "fundraiser"],
+  "facts": [
+    {
+      "id": "KB-DONATION-001",
+      "section": "Tax compliance",
+      "category": "functional",
+      "weight": 2.0,
+      "statement": "A US donor can only claim a tax deduction for a single contribution of $250 or more if they receive a contemporaneous written acknowledgment from the charity, obtained by the earlier of the donor's filing date or filing deadline - so the platform must generate and deliver a compliant receipt for every donation at or above that threshold.",
+      "source_title": "Charitable contributions: Written acknowledgments",
+      "source_url": "https://www.irs.gov/charities-non-profits/charitable-organizations/charitable-contributions-written-acknowledgments"
+    },
+    {
+      "id": "KB-DONATION-002",
+      "section": "Tax compliance",
+      "category": "functional",
+      "weight": 1.5,
+      "statement": "A donation receipt must state the cash amount contributed and disclose whether the charity provided any goods or services in exchange (e.g. a reward-tier item); if so, it must include a good-faith estimate of their value (quid pro quo disclosure).",
+      "source_title": "Charitable organizations: substantiation and disclosure requirements",
+      "source_url": "https://www.irs.gov/charities-non-profits/charitable-organizations/charitable-organizations-substantiation-and-disclosure-requirements"
+    },
+    {
+      "id": "KB-DONATION-003",
+      "section": "Charitable registration",
+      "category": "risk",
+      "weight": 1.5,
+      "statement": "A nonprofit that solicits donations online is generally required to register for charitable solicitation in most US states before accepting donations from residents there (41 states plus DC regulate this); using a donation platform does not itself satisfy this obligation - the registration responsibility remains with the nonprofit.",
+      "source_title": "State Charitable Registration When Soliciting Donations Online",
+      "source_url": "https://www.cogencyglobal.com/blog/state-charitable-registration-when-soliciting-donations-online/"
+    },
+    {
+      "id": "KB-DONATION-004",
+      "section": "Payments security",
+      "category": "nonfunctional",
+      "weight": 1.5,
+      "statement": "Donation processing must comply with PCI DSS v4.0.1: no storage of full card numbers or CVV, and strong access controls and logging for any system handling donor payment data.",
+      "source_title": "PCI DSS v4.0.1 Sets New Baseline For Cardholder Data Security",
+      "source_url": "https://www.brightdefense.com/news/pci-dss-v4-0-1-sets-new-baseline-for-cardholder-data-security/"
+    },
+    {
+      "id": "KB-DONATION-005",
+      "section": "Privacy",
+      "category": "nonfunctional",
+      "weight": 1.5,
+      "statement": "Donor personal and payment data must be collected under informed consent with data minimisation, consistent with GDPR/CCPA-style requirements, including honouring a donor's choice to give anonymously where the platform offers it.",
+      "source_title": "What Is GDPR Compliance in 2026",
+      "source_url": "https://pitchnhire.com/blog/gdpr-compliance-2026"
+    },
+    {
+      "id": "KB-DONATION-006",
+      "section": "Fraud monitoring",
+      "category": "risk",
+      "weight": 1.0,
+      "statement": "Unusually large or patterned donations (e.g. many small donations from related accounts, or a sudden spike inconsistent with a campaign's normal activity) should be flagged for manual review, since donation platforms are a recognised vector for money laundering and payment fraud.",
+      "source_title": "5 essential steps for KYC/AML onboarding and compliance",
+      "source_url": "https://legal.thomsonreuters.com/blog/5-essential-steps-for-kyc-aml-onboarding-and-compliance/"
+    }
+  ]
+}

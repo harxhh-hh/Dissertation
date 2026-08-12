@@ -1,0 +1,63 @@
+{
+  "domain": "mobile_banking",
+  "status": "draft",
+  "researched_at": "2026-08-12T00:00:00Z",
+  "matched_case_ids": ["TC-06_mobile_banking_app"],
+  "keywords": ["banking", "bank account", "mobile banking", "money transfer", "deposit check", "fraud", "financial", "wire transfer", "fintech"],
+  "facts": [
+    {
+      "id": "KB-BANKING-001",
+      "section": "Authentication",
+      "category": "nonfunctional",
+      "weight": 2.0,
+      "statement": "Under PSD2 Strong Customer Authentication (SCA), an electronic payment must be authenticated with at least two independent factors drawn from knowledge, possession, and inherence; a single SMS one-time code alone does not satisfy SCA because it is not dynamically linked to the transaction.",
+      "source_title": "Open Banking, PSD2, & Strong Customer Authentication",
+      "source_url": "https://www.hypr.com/blog/open-banking-psd2-and-achieving-strong-customer-authentication"
+    },
+    {
+      "id": "KB-BANKING-002",
+      "section": "Authentication",
+      "category": "nonfunctional",
+      "weight": 1.5,
+      "statement": "Authentication codes generated for a payment must be dynamically linked to that specific transaction's amount and payee, so a captured code cannot be replayed against a different transaction.",
+      "source_title": "PSD2 - Strong Customer Authentication (SCA)",
+      "source_url": "https://www.onespan.com/blog/strong-customer-authentication-under-psd2-good-bad-and-ugly"
+    },
+    {
+      "id": "KB-BANKING-003",
+      "section": "Application security",
+      "category": "nonfunctional",
+      "weight": 1.5,
+      "statement": "The mobile app should run within a shielded, isolated execution environment resistant to overlay attacks, code injection, and keylogging, since PSD2's Regulatory Technical Standards call for a separated secure execution environment for mobile payment actions.",
+      "source_title": "PSD2 Compliance and PSD2 Authentication",
+      "source_url": "https://www.onespan.com/solutions/compliance/psd2"
+    },
+    {
+      "id": "KB-BANKING-004",
+      "section": "Identity verification",
+      "category": "functional",
+      "weight": 2.0,
+      "statement": "New-customer onboarding must include a Customer Identification Program that verifies government ID and identity details, and the bank must perform ongoing Customer Due Diligence on existing accounts, per Bank Secrecy Act / anti-money-laundering requirements.",
+      "source_title": "What is KYC in banking",
+      "source_url": "https://www.veriff.com/kyc/learn/what-is-kyc-in-banking"
+    },
+    {
+      "id": "KB-BANKING-005",
+      "section": "Payments security",
+      "category": "nonfunctional",
+      "weight": 1.5,
+      "statement": "Any component that stores, processes, or transmits card data must comply with PCI DSS v4.0.1: no storage of full card numbers or CVV, and strong access controls and logging for any system handling cardholder data.",
+      "source_title": "PCI DSS v4.0.1 Sets New Baseline For Cardholder Data Security",
+      "source_url": "https://www.brightdefense.com/news/pci-dss-v4-0-1-sets-new-baseline-for-cardholder-data-security/"
+    },
+    {
+      "id": "KB-BANKING-006",
+      "section": "Fraud monitoring",
+      "category": "risk",
+      "weight": 1.5,
+      "statement": "The bank must run an ongoing anti-money-laundering monitoring program capable of flagging suspicious transaction patterns (unusual amounts, velocity, or destinations) for manual review and, where required, regulatory reporting.",
+      "source_title": "5 essential steps for KYC/AML onboarding and compliance",
+      "source_url": "https://legal.thomsonreuters.com/blog/5-essential-steps-for-kyc-aml-onboarding-and-compliance/"
+    }
+  ]
+}

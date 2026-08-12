@@ -14,12 +14,13 @@ Usage::
 
 Cost warning:
 
-    A default run at ``REPETITIONS=1``, ``MAX_REVISION_ROUNDS=1`` on the
-    four test cases is roughly 4 baseline + 4×hierarchical + 4×peer_to_peer
-    + 4×debate + (optional) 16 evaluations = **~120 LLM calls total** at
-    ``claude-opus-5``. Ballpark **~£3–£6**. Higher REPETITIONS scales
-    linearly. Print the plan and require the user to type "yes" before
-    starting.
+    A default run at ``REPETITIONS=1``, ``MAX_REVISION_ROUNDS=1`` on all
+    ten test cases is roughly 10 baseline + 10×hierarchical +
+    10×peer_to_peer + 10×debate + (optional) 40 evaluations = **~300 LLM
+    calls total** at ``claude-opus-5``. Ballpark **~£7.50-£15**. Use
+    ``--cases`` to restrict to a subset (e.g. just the original four) for
+    a cheaper run. Higher REPETITIONS scales linearly. Print the plan and
+    require the user to type "yes" before starting.
 
 Outputs land in the standard run directory, one file per artefact:
 

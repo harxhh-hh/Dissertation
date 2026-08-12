@@ -1,0 +1,63 @@
+{
+  "domain": "ride_sharing",
+  "status": "draft",
+  "researched_at": "2026-08-12T00:00:00Z",
+  "matched_case_ids": ["TC-08_ride_sharing_platform"],
+  "keywords": ["ride-sharing", "ride sharing", "rideshare", "driver", "passenger", "pickup", "carpooling", "trip", "taxi"],
+  "facts": [
+    {
+      "id": "KB-RIDESHARE-001",
+      "section": "Driver vetting",
+      "category": "functional",
+      "weight": 2.0,
+      "statement": "45 US states and DC expressly require a criminal background check before a driver can be activated on a transportation network company (TNC) platform; several states (e.g. Illinois, Texas) require the check to cover at least 7 years of criminal and driving history.",
+      "source_title": "States Address Background Checks for Rideshare Drivers",
+      "source_url": "https://knowledgecenter.csg.org/kc/content/states-address-background-checks-rideshare-drivers"
+    },
+    {
+      "id": "KB-RIDESHARE-002",
+      "section": "Driver vetting",
+      "category": "functional",
+      "weight": 1.5,
+      "statement": "Some states require drivers to be periodically re-screened rather than checked only at signup - e.g. Colorado requires a renewed criminal history record check at least every 5 years for a driver to remain active on the platform.",
+      "source_title": "States Address Background Checks for Rideshare Drivers",
+      "source_url": "https://knowledgecenter.csg.org/kc/content/states-address-background-checks-rideshare-drivers"
+    },
+    {
+      "id": "KB-RIDESHARE-003",
+      "section": "Accessibility",
+      "category": "nonfunctional",
+      "weight": 1.5,
+      "statement": "Under ADA Title III, a driver cannot refuse a rider because of a disability or a mobility device that reasonably fits in the vehicle, cannot charge more for stowing the device, and must provide reasonable assistance stowing it; the matching/dispatch logic must not systematically disadvantage riders who flag an accessibility need.",
+      "source_title": "The ADA and Accessible Ground Transportation",
+      "source_url": "https://adata.org/factsheet/ADA-accessible-transportation"
+    },
+    {
+      "id": "KB-RIDESHARE-004",
+      "section": "Insurance",
+      "category": "nonfunctional",
+      "weight": 2.0,
+      "statement": "State TNC insurance laws mandate different minimum coverage for distinct trip phases - e.g. New York requires at least $75,000/$150,000/$25,000 (bodily injury per person/per accident/property damage) while a driver is logged in and waiting for a request, and California requires $1,000,000 primary coverage once a ride is active - so the system must track and record which phase a driver is in at any time.",
+      "source_title": "FAQs About Transportation Network Companies (Ride Sharing)",
+      "source_url": "https://www.dfs.ny.gov/apps_and_licensing/property_insurers/trans_network_co_ride_sharing_faqs"
+    },
+    {
+      "id": "KB-RIDESHARE-005",
+      "section": "Privacy",
+      "category": "nonfunctional",
+      "weight": 1.5,
+      "statement": "Real-time GPS location data collected during a trip is personal data and must be collected under informed consent with data minimisation, consistent with GDPR/CCPA-style requirements.",
+      "source_title": "What Is GDPR Compliance in 2026",
+      "source_url": "https://pitchnhire.com/blog/gdpr-compliance-2026"
+    },
+    {
+      "id": "KB-RIDESHARE-006",
+      "section": "Insurance",
+      "category": "risk",
+      "weight": 1.0,
+      "statement": "Personal auto insurance policies commonly exclude coverage while a driver's app is on but no ride has yet been accepted (the 'insurance gap' period); state TNC laws close this by mandating minimum liability coverage for that period too, so the platform must not treat 'app on, waiting' as an uninsured or unlogged state.",
+      "source_title": "FAQs About Transportation Network Companies (Ride Sharing)",
+      "source_url": "https://www.dfs.ny.gov/apps_and_licensing/property_insurers/trans_network_co_ride_sharing_faqs"
+    }
+  ]
+}

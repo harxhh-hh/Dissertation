@@ -239,8 +239,8 @@ settings.apply_seed()
 
 print("\n1. Test cases module")
 case_ids = [c.case_id for c in TEST_CASES]
-check("4 test cases defined", len(TEST_CASES) == 4)
-check("all case IDs unique", len(set(case_ids)) == 4)
+check("10 test cases defined", len(TEST_CASES) == 10)
+check("all case IDs unique", len(set(case_ids)) == 10)
 check("get_case looks up by id",
       get_case("TC-01_restaurant_app").title == "Restaurant chain mobile app")
 

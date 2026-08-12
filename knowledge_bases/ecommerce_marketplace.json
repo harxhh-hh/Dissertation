@@ -1,0 +1,63 @@
+{
+  "domain": "ecommerce_marketplace",
+  "status": "draft",
+  "researched_at": "2026-08-12T00:00:00Z",
+  "matched_case_ids": ["TC-07_ecommerce_marketplace"],
+  "keywords": ["marketplace", "online store", "e-commerce", "ecommerce", "seller", "storefront", "shopping cart", "checkout", "product listing"],
+  "facts": [
+    {
+      "id": "KB-MARKETPLACE-001",
+      "section": "Seller verification",
+      "category": "functional",
+      "weight": 2.0,
+      "statement": "Under the US INFORM Consumers Act, a marketplace must collect and verify identifying information (name, address, contact details, and bank/tax ID) for any 'high-volume third-party seller' - one with 200 or more transactions and $5,000 or more in gross revenue on that platform within a continuous 12-month period.",
+      "source_title": "Informing Businesses about the INFORM Consumers Act",
+      "source_url": "https://www.ftc.gov/business-guidance/resources/INFORMAct"
+    },
+    {
+      "id": "KB-MARKETPLACE-002",
+      "section": "Seller verification",
+      "category": "functional",
+      "weight": 1.5,
+      "statement": "Once a high-volume third-party seller's revenue on the platform reaches $20,000 or more, the marketplace must clearly and conspicuously disclose that seller's name, address, and contact information on the product listing page or in order confirmation messages.",
+      "source_title": "What Third Party Sellers Need to Know About the INFORM Consumers Act",
+      "source_url": "https://www.ftc.gov/business-guidance/resources/what-third-party-sellers-need-know-about-inform-consumers-act"
+    },
+    {
+      "id": "KB-MARKETPLACE-003",
+      "section": "Seller verification",
+      "category": "functional",
+      "weight": 1.5,
+      "statement": "Under the EU Digital Services Act (Article 30), a marketplace operating in the EU must verify a business seller's identity before allowing them to list products, and must design the listing interface so sellers can readily comply with their own disclosure obligations (Article 31, 'compliance by design').",
+      "source_title": "DSA decoded #9: The DSA and online marketplaces",
+      "source_url": "https://www.freshfields.com/en/our-thinking/blogs/technology-quotient/dsa-decoded-9-the-dsa-and-online-marketplaces-102lx12"
+    },
+    {
+      "id": "KB-MARKETPLACE-004",
+      "section": "Payments security",
+      "category": "nonfunctional",
+      "weight": 1.5,
+      "statement": "Checkout and any component that stores, processes, or transmits card data must comply with PCI DSS v4.0.1: no storage of full card numbers or CVV, and strong access controls for systems handling cardholder data.",
+      "source_title": "PCI DSS v4.0.1 Sets New Baseline For Cardholder Data Security",
+      "source_url": "https://www.brightdefense.com/news/pci-dss-v4-0-1-sets-new-baseline-for-cardholder-data-security/"
+    },
+    {
+      "id": "KB-MARKETPLACE-005",
+      "section": "Accessibility",
+      "category": "nonfunctional",
+      "weight": 1.0,
+      "statement": "The storefront, product search, and checkout flow should meet WCAG 2.1/2.2 Level AA so shoppers with disabilities can browse and complete a purchase independently.",
+      "source_title": "WCAG 2.2 Accessibility Standards: Complete 2026 Compliance Guide",
+      "source_url": "https://www.webability.io/blog/wcag-2-2-accessibility-standards-complete-2026-compliance-guide"
+    },
+    {
+      "id": "KB-MARKETPLACE-006",
+      "section": "Children's privacy",
+      "category": "risk",
+      "weight": 1.0,
+      "statement": "If the marketplace is directed at or reasonably likely to attract children under 13 (e.g. a toys or games category), the platform must obtain verifiable parental consent before collecting personal information from those users, per COPPA.",
+      "source_title": "Children's Online Privacy Protection Rule: A Six-Step Compliance Plan",
+      "source_url": "https://www.ftc.gov/business-guidance/resources/childrens-online-privacy-protection-rule-six-step-compliance-plan-your-business"
+    }
+  ]
+}

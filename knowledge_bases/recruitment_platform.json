@@ -1,0 +1,63 @@
+{
+  "domain": "recruitment_platform",
+  "status": "draft",
+  "researched_at": "2026-08-12T00:00:00Z",
+  "matched_case_ids": ["TC-10_recruitment_platform"],
+  "keywords": ["recruitment", "hiring", "applicant tracking", "job posting", "candidate", "resume", "interview", "recruiter", "hr"],
+  "facts": [
+    {
+      "id": "KB-HR-001",
+      "section": "Anti-discrimination",
+      "category": "nonfunctional",
+      "weight": 2.0,
+      "statement": "Title VII of the Civil Rights Act applies fully to algorithmic and AI-assisted hiring tools per EEOC technical guidance: an employer can face disparate-impact liability if a screening or ranking tool's outcomes disproportionately exclude a protected group, regardless of intent, unless job-relatedness and business necessity are demonstrated.",
+      "source_title": "EEOC AI Hiring Enforcement: What HR Teams Must Know",
+      "source_url": "https://thecomplyguide.com/eeoc-ai-hiring-enforcement/"
+    },
+    {
+      "id": "KB-HR-002",
+      "section": "Anti-discrimination",
+      "category": "nonfunctional",
+      "weight": 1.5,
+      "statement": "Under Illinois HB 3773 (effective 1 January 2026), an employer may not use AI in a way that has the effect of subjecting an applicant or employee to discrimination based on a protected class; any automated resume-screening or ranking feature should support human review and an audit trail of its decisions.",
+      "source_title": "Patchwork AI Hiring Laws Create Rising Compliance Risks for Employers",
+      "source_url": "https://darroweverett.com/ai-hiring-workforce-management-2026-legal-analysis-updates/"
+    },
+    {
+      "id": "KB-HR-003",
+      "section": "Anti-discrimination",
+      "category": "risk",
+      "weight": 1.0,
+      "statement": "California regulations require employers to retain automated employment-decision data for at least 4 years and prohibit AI tools from screening out applicants based on a protected characteristic.",
+      "source_title": "Patchwork AI Hiring Laws Create Rising Compliance Risks for Employers",
+      "source_url": "https://darroweverett.com/ai-hiring-workforce-management-2026-legal-analysis-updates/"
+    },
+    {
+      "id": "KB-HR-004",
+      "section": "Background checks",
+      "category": "functional",
+      "weight": 2.0,
+      "statement": "Before requesting a background/consumer report on an applicant, the employer must give a standalone written disclosure and obtain the applicant's written consent (FCRA); if the report contributes to an adverse hiring decision, the applicant must receive a pre-adverse-action notice with a copy of the report, then a waiting period, then a final adverse-action notice.",
+      "source_title": "FCRA Disclosure and Authorization Requirements",
+      "source_url": "https://www.goodhire.com/blog/fcra-disclosure-and-authorization-tips-ftc/"
+    },
+    {
+      "id": "KB-HR-005",
+      "section": "Accessibility",
+      "category": "nonfunctional",
+      "weight": 1.0,
+      "statement": "The candidate-facing application portal (job search, application form, assessments) should meet WCAG 2.1/2.2 Level AA so applicants with disabilities can complete the application process independently.",
+      "source_title": "WCAG 2.2 Accessibility Standards: Complete 2026 Compliance Guide",
+      "source_url": "https://www.webability.io/blog/wcag-2-2-accessibility-standards-complete-2026-compliance-guide"
+    },
+    {
+      "id": "KB-HR-006",
+      "section": "Privacy",
+      "category": "nonfunctional",
+      "weight": 1.5,
+      "statement": "Candidate personal data (resumes, assessment results, background-check results) collected from EU, UK, or California applicants must be handled under GDPR/CCPA-consistent consent, purpose limitation, and defined retention periods.",
+      "source_title": "Recruitment Compliance: EEOC, GDPR, and AI Hiring Regulations Explained",
+      "source_url": "https://cadienttalent.com/recruitment-compliance-eeoc-gdpr-and-ai-hiring-regulations-explained/"
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "domain": "telehealth",
+  "status": "draft",
+  "researched_at": "2026-08-12T00:00:00Z",
+  "matched_case_ids": ["TC-05_telehealth_platform"],
+  "keywords": ["telehealth", "telemedicine", "video consultation", "virtual visit", "doctor", "patient", "prescription", "clinician", "healthcare"],
+  "facts": [
+    {
+      "id": "KB-TELEHEALTH-001",
+      "section": "Privacy and security",
+      "category": "nonfunctional",
+      "weight": 2.0,
+      "statement": "Any platform that transmits, processes, or stores protected health information (PHI) must use encrypted, secure video/audio/messaging channels (e.g. TLS in transit, strong encryption at rest), and any third-party vendor handling PHI must be bound by a signed Business Associate Agreement (BAA).",
+      "source_title": "HIPAA Guidelines on Telemedicine",
+      "source_url": "https://www.hipaajournal.com/hipaa-guidelines-on-telemedicine/"
+    },
+    {
+      "id": "KB-TELEHEALTH-002",
+      "section": "Privacy and security",
+      "category": "nonfunctional",
+      "weight": 1.5,
+      "statement": "Under the updated HIPAA Security Rule, remote access to systems holding ePHI must be protected by multi-factor authentication, and the organisation must maintain an up-to-date inventory of technology assets that touch ePHI.",
+      "source_title": "Telehealth HIPAA Compliance: Complete Guide for Providers",
+      "source_url": "https://medcurity.com/telehealth-hipaa-compliance/"
+    },
+    {
+      "id": "KB-TELEHEALTH-003",
+      "section": "Licensure and prescribing",
+      "category": "functional",
+      "weight": 1.5,
+      "statement": "A clinician must hold a valid medical license in the state where the patient is physically located at the time of the visit (or practise under an applicable interstate licensure compact); the system must be able to capture and verify a clinician's licensed states against the patient's location before a visit is confirmed.",
+      "source_title": "Cross-State Licensure - Alliance for Connected Care",
+      "source_url": "https://connectwithcare.org/cross-state-licensure/"
+    },
+    {
+      "id": "KB-TELEHEALTH-004",
+      "section": "Licensure and prescribing",
+      "category": "functional",
+      "weight": 1.5,
+      "statement": "Prescribing a controlled substance via telehealth requires the prescriber to hold a valid DEA registration covering the state where the patient is located at the time of prescribing.",
+      "source_title": "Telehealth Prescribing Across State Lines Guide",
+      "source_url": "https://doctorshome.com/telehealth-prescribing-across-state-lines-guide/"
+    },
+    {
+      "id": "KB-TELEHEALTH-005",
+      "section": "Accessibility",
+      "category": "nonfunctional",
+      "weight": 1.0,
+      "statement": "The patient-facing booking and video-visit interface should meet WCAG 2.1/2.2 Level AA so patients with visual, hearing, or motor impairments can independently book and attend a virtual visit.",
+      "source_title": "WCAG 2.2 Accessibility Standards: Complete 2026 Compliance Guide",
+      "source_url": "https://www.webability.io/blog/wcag-2-2-accessibility-standards-complete-2026-compliance-guide"
+    },
+    {
+      "id": "KB-TELEHEALTH-006",
+      "section": "Consent and records",
+      "category": "risk",
+      "weight": 1.5,
+      "statement": "Patients must give informed consent to telehealth treatment, and must be told clearly whether a session is recorded, how long recordings are retained, and who can access them, consistent with HIPAA's minimum-necessary standard for PHI access.",
+      "source_title": "Ultimate HIPAA Telehealth Compliance for Secure Care",
+      "source_url": "https://www.trustcloud.ai/hipaa/empowering-ultimate-hipaa-telehealth-compliance-for-secure-remote-healthcare/"
+    }
+  ]
+}

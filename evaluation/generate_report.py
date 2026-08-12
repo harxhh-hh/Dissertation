@@ -27,6 +27,7 @@ import statistics
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -250,8 +251,15 @@ def generate_report(run_dir: Path) -> Path:
     config = _load_json(run_dir / "config.json") or {}
     manifest = _load_json(run_dir / "run_manifest.json") or {}
 
+    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
     lines: list[str] = []
     lines.append(f"# Experiment analysis — run `{config.get('run_id', run_dir.name)}`\n")
+    lines.append(
+        f"_Report generated: {generated_at}._ This can differ from when the "
+        "run itself happened (the run's own timestamp is in its directory "
+        "name and `config.json`) if the report was regenerated later.\n"
+    )
     lines.append(
         "_This report is generated automatically from the run's artefacts._ "
         "_Cost and latency exclude evaluator calls; scores are LLM-as-judge_ "

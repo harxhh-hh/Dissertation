@@ -42,7 +42,9 @@ EffortLevel = Literal["low", "medium", "high", "xhigh", "max"]
 ThinkingMode = Literal["adaptive", "disabled"]
 
 #: LLM providers supported by this project.
-LLMProvider = Literal["groq", "anthropic", "ollama"]
+LLMProvider = Literal[
+    "groq", "anthropic", "ollama", "openai", "openrouter", "gemini"
+]
 
 _VALID_EFFORT: Final[frozenset[str]] = frozenset(
     {"low", "medium", "high", "xhigh", "max"}
@@ -51,7 +53,9 @@ _VALID_THINKING: Final[frozenset[str]] = frozenset({"adaptive", "disabled"})
 _VALID_LOG_LEVEL: Final[frozenset[str]] = frozenset(
     {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 )
-_VALID_PROVIDER: Final[frozenset[str]] = frozenset({"groq", "anthropic", "ollama"})
+_VALID_PROVIDER: Final[frozenset[str]] = frozenset(
+    {"groq", "anthropic", "ollama", "openai", "openrouter", "gemini"}
+)
 
 #: Default Ollama server URL. Ollama serves an OpenAI-compatible endpoint
 #: from a local process (``ollama serve``); the default port is 11434.
@@ -60,6 +64,18 @@ _DEFAULT_OLLAMA_BASE_URL: Final[str] = "http://localhost:11434"
 #: Default Ollama model tag when ``OLLAMA_MODEL`` is unset. A small,
 #: broadly-available default that most Ollama installs can pull quickly.
 _DEFAULT_OLLAMA_MODEL: Final[str] = "mistral"
+
+#: OpenRouter's API endpoint is fixed (unlike Ollama's, there is no
+#: legitimate reason to point it elsewhere), so it is a plain constant
+#: rather than a configurable Settings field.
+OPENROUTER_BASE_URL: Final[str] = "https://openrouter.ai/api/v1"
+
+#: Provider-appropriate default model IDs, used when MODEL_ID is unset.
+#: Deliberately the cheap/fast tier of each provider — a run that forgets
+#: to set MODEL_ID should not silently rack up cost on the priciest model.
+_DEFAULT_OPENAI_MODEL: Final[str] = "gpt-4o-mini"
+_DEFAULT_OPENROUTER_MODEL: Final[str] = "openai/gpt-4o-mini"
+_DEFAULT_GEMINI_MODEL: Final[str] = "gemini-1.5-flash"
 
 #: Effort levels at which the API rejects ``thinking={"type": "disabled"}``.
 #: Documented behaviour of ``claude-opus-5``; validated here so the run fails
@@ -217,13 +233,23 @@ class Settings:
     for writing into the run directory.
 
     Attributes:
-        llm_provider: Which back-end to use (``groq``, ``anthropic``, or
-            ``ollama``).
+        llm_provider: Which back-end to use (``groq``, ``anthropic``,
+            ``ollama``, ``openai``, ``openrouter``, or ``gemini``).
         anthropic_api_key: Credential for the Anthropic Messages API. Empty
             when ``llm_provider != "anthropic"``. Never logged or
             serialised; :meth:`to_dict` redacts it.
         groq_api_key: Credential for the Groq API. Empty when
             ``llm_provider != "groq"``. Never logged or serialised;
+            :meth:`to_dict` redacts it.
+        openai_api_key: Credential for the OpenAI API. Empty when
+            ``llm_provider != "openai"``. Never logged or serialised;
+            :meth:`to_dict` redacts it.
+        openrouter_api_key: Credential for OpenRouter (a single key that
+            proxies to many providers/models). Empty when
+            ``llm_provider != "openrouter"``. Never logged or serialised;
+            :meth:`to_dict` redacts it.
+        gemini_api_key: Credential for the Google Gemini API. Empty when
+            ``llm_provider != "gemini"``. Never logged or serialised;
             :meth:`to_dict` redacts it.
         ollama_base_url: URL of the Ollama server (typically local). Used
             only when ``llm_provider == "ollama"``. Not sensitive; NOT
@@ -235,16 +261,15 @@ class Settings:
             Ollama users typically think about local model tags, but
             when ``provider == "ollama"`` this field wins over
             ``model_id`` for the effective model choice.
-        model_id: Model identifier used by every agent in every condition
-            for the Anthropic and Groq providers. For the Ollama provider
-            see ``ollama_model``.
+        model_id: Model identifier used by every agent in every condition,
+            for every provider except Ollama (see ``ollama_model``).
         max_tokens: Upper bound on output tokens per LLM call.
         effort: Reasoning-effort level passed as ``output_config.effort``
-            on Anthropic. Ignored when ``llm_provider`` is ``groq`` or
-            ``ollama`` (recorded in ``config.json`` for provenance).
+            on Anthropic. Ignored by every other provider (recorded in
+            ``config.json`` for provenance).
         thinking_mode: Extended-thinking mode (``adaptive`` or
-            ``disabled``). Ignored when ``llm_provider`` is ``groq`` or
-            ``ollama`` (recorded in ``config.json`` for provenance).
+            ``disabled``). Ignored by every provider except Anthropic
+            (recorded in ``config.json`` for provenance).
         random_seed: Seed for all Python-side randomness.
         max_revision_rounds: Cap on Verification-Agent-triggered revisions.
         repetitions: Independent repetitions per (architecture, test case) pair.
@@ -258,6 +283,9 @@ class Settings:
     llm_provider: LLMProvider
     anthropic_api_key: str
     groq_api_key: str
+    openai_api_key: str
+    openrouter_api_key: str
+    gemini_api_key: str
     ollama_base_url: str
     ollama_model: str
     model_id: str
@@ -276,7 +304,13 @@ class Settings:
     # -- construction -------------------------------------------------------
 
     @classmethod
-    def from_env(cls, *, env_file: Path | None = None, run_id: str | None = None) -> "Settings":
+    def from_env(
+        cls,
+        *,
+        env_file: Path | None = None,
+        run_id: str | None = None,
+        run_id_suffix: str | None = None,
+    ) -> "Settings":
         """Build a :class:`Settings` instance from the environment.
 
         Loads ``.env`` from the project root (unless ``env_file`` overrides
@@ -287,9 +321,16 @@ class Settings:
 
         Args:
             env_file: Optional explicit path to a dotenv file.
-            run_id: Optional explicit run identifier. Defaults to a UTC
-                timestamp. Supply this to group several invocations under one
-                logical run.
+            run_id: Optional explicit run identifier, used verbatim. Defaults
+                to a UTC timestamp. Supply this to group several invocations
+                under one logical run. Takes precedence over
+                ``run_id_suffix`` if both are given.
+            run_id_suffix: Optional short, filesystem-safe slug appended to
+                the default UTC-timestamp run id (e.g. a description slug),
+                so the run directory reads as ``run_<timestamp>_<suffix>``
+                instead of a bare timestamp — the date/time stays first so
+                directory names remain chronologically sortable by name.
+                Ignored if ``run_id`` is given explicitly.
 
         Returns:
             A validated, frozen configuration object.
@@ -298,6 +339,9 @@ class Settings:
             ConfigurationError: If any variable is missing, malformed, or
                 describes a combination the API would reject.
         """
+        if run_id is None and run_id_suffix:
+            run_id = f"{_utc_timestamp_slug()}_{run_id_suffix}"
+
         dotenv_path = env_file if env_file is not None else PROJECT_ROOT / ".env"
         # override=False: a variable already exported in the shell wins.
         load_dotenv(dotenv_path, override=False)
@@ -321,11 +365,14 @@ class Settings:
             )
 
         # Require only the credential for the selected provider. Store the
-        # other as empty rather than requiring both, so a user set up for
-        # one provider does not need a dummy key for the other. Ollama is
-        # keyless — it talks to a local server — so no credential check.
+        # others as empty rather than requiring all of them, so a user set
+        # up for one provider does not need dummy keys for the rest.
+        # Ollama is keyless — it talks to a local server — so no check.
         anthropic_key = _get_str("ANTHROPIC_API_KEY", "")
         groq_key = _get_str("GROQ_API_KEY", "")
+        openai_key = _get_str("OPENAI_API_KEY", "")
+        openrouter_key = _get_str("OPENROUTER_API_KEY", "")
+        gemini_key = _get_str("GEMINI_API_KEY", "")
         if provider == "anthropic" and not anthropic_key:
             raise ConfigurationError(
                 "LLM_PROVIDER=anthropic but ANTHROPIC_API_KEY is missing "
@@ -335,6 +382,21 @@ class Settings:
             raise ConfigurationError(
                 "LLM_PROVIDER=groq but GROQ_API_KEY is missing or empty. "
                 "Set it in .env."
+            )
+        if provider == "openai" and not openai_key:
+            raise ConfigurationError(
+                "LLM_PROVIDER=openai but OPENAI_API_KEY is missing or "
+                "empty. Set it in .env."
+            )
+        if provider == "openrouter" and not openrouter_key:
+            raise ConfigurationError(
+                "LLM_PROVIDER=openrouter but OPENROUTER_API_KEY is missing "
+                "or empty. Set it in .env."
+            )
+        if provider == "gemini" and not gemini_key:
+            raise ConfigurationError(
+                "LLM_PROVIDER=gemini but GEMINI_API_KEY is missing or "
+                "empty. Set it in .env."
             )
         # Placeholder detection, but only for the ACTIVE provider — an
         # unused-provider key that still holds its placeholder should not
@@ -358,6 +420,24 @@ class Settings:
                 "a real credential. Get a real key from "
                 "https://console.groq.com/keys and set it in .env."
             )
+        if provider == "openai" and _looks_like_placeholder(openai_key):
+            raise ConfigurationError(
+                f"OPENAI_API_KEY={openai_key!r} looks like a placeholder, "
+                "not a real credential. Get a real key from "
+                "https://platform.openai.com/api-keys and set it in .env."
+            )
+        if provider == "openrouter" and _looks_like_placeholder(openrouter_key):
+            raise ConfigurationError(
+                f"OPENROUTER_API_KEY={openrouter_key!r} looks like a "
+                "placeholder, not a real credential. Get a real key from "
+                "https://openrouter.ai/keys and set it in .env."
+            )
+        if provider == "gemini" and _looks_like_placeholder(gemini_key):
+            raise ConfigurationError(
+                f"GEMINI_API_KEY={gemini_key!r} looks like a placeholder, "
+                "not a real credential. Get a real key from "
+                "https://aistudio.google.com/apikey and set it in .env."
+            )
 
         # Ollama configuration. Both fields have sensible defaults so a
         # user who sets LLM_PROVIDER=ollama and nothing else still gets a
@@ -380,6 +460,12 @@ class Settings:
             default_model = "claude-opus-5"
         elif provider == "groq":
             default_model = "llama-3.3-70b-versatile"
+        elif provider == "openai":
+            default_model = _DEFAULT_OPENAI_MODEL
+        elif provider == "openrouter":
+            default_model = _DEFAULT_OPENROUTER_MODEL
+        elif provider == "gemini":
+            default_model = _DEFAULT_GEMINI_MODEL
         else:  # provider == "ollama"
             default_model = ollama_model
 
@@ -387,6 +473,9 @@ class Settings:
             llm_provider=provider,  # type: ignore[arg-type]  # validated
             anthropic_api_key=anthropic_key,
             groq_api_key=groq_key,
+            openai_api_key=openai_key,
+            openrouter_api_key=openrouter_key,
+            gemini_api_key=gemini_key,
             ollama_base_url=ollama_base_url,
             ollama_model=ollama_model,
             model_id=_get_str("MODEL_ID", default_model),
@@ -473,15 +562,18 @@ class Settings:
         data = asdict(self)
         data["anthropic_api_key"] = "<redacted>"
         data["groq_api_key"] = "<redacted>"
+        data["openai_api_key"] = "<redacted>"
+        data["openrouter_api_key"] = "<redacted>"
+        data["gemini_api_key"] = "<redacted>"
         data["output_dir"] = str(self.output_dir)
         data["run_dir"] = str(self.run_dir)
         return data
 
     def __repr__(self) -> str:  # pragma: no cover - debugging convenience
-        """Return a representation that cannot leak either API key.
+        """Return a representation that cannot leak any API key.
 
-        Ollama fields are shown verbatim (no credential to leak); the
-        provider-specific key fields remain redacted regardless of which
+        Ollama fields are shown verbatim (no credential to leak); every
+        provider-specific key field is redacted regardless of which
         provider is active.
         """
         return (
@@ -492,5 +584,7 @@ class Settings:
             f"max_revision_rounds={self.max_revision_rounds}, "
             f"ollama_base_url={self.ollama_base_url!r}, "
             f"ollama_model={self.ollama_model!r}, "
-            f"anthropic_api_key='<redacted>', groq_api_key='<redacted>')"
+            f"anthropic_api_key='<redacted>', groq_api_key='<redacted>', "
+            f"openai_api_key='<redacted>', openrouter_api_key='<redacted>', "
+            f"gemini_api_key='<redacted>')"
         )

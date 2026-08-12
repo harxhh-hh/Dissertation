@@ -41,6 +41,8 @@ from typing import Any
 from agents.base import Agent, RunContext
 from config import prompts
 from config.settings import Settings
+from evaluation.linter import LintIssue, LintResult, lint_srs
+from evaluation.srs_parser import parse_requirements
 from utils.llm_client import LLMClient
 from utils.logging import ExperimentLogger
 
@@ -50,6 +52,39 @@ DIMENSIONS: tuple[str, ...] = prompts.EVALUATION_DIMENSIONS
 #: Filename that :func:`evaluate_run` writes to the run directory holding
 #: the flat scores table.
 EVALUATION_FILENAME: str = "evaluation.json"
+
+
+def _dimension_from_lint(
+    score_0_1: float, lint_issues: list[LintIssue], category: str,
+) -> tuple[int, str, list[str]]:
+    """Convert one Layer-1 lint sub-score into a rubric-scale (1-5) triple.
+
+    Args:
+        score_0_1: The linter's ``[0, 1]`` sub-score for this dimension
+            (``LintResult.testability_score`` or ``.consistency_score``).
+        lint_issues: The full issue list from the same :class:`LintResult`;
+            filtered here down to ``category``.
+        category: The :class:`~evaluation.linter.LintIssue` category to
+            filter to — ``"testability"`` or ``"consistency"``.
+
+    Returns:
+        ``(score, justification, issue_strings)``, in the same shape
+        :class:`EvaluationRecord` stores for its LLM-judged dimensions,
+        so the two sources are indistinguishable to any downstream code.
+    """
+    score_1_5 = max(1, min(5, round(1 + 4 * score_0_1)))
+    relevant = [i for i in lint_issues if i.category == category]
+    if relevant:
+        justification = (
+            f"Deterministic lint: {len(relevant)} issue(s) found "
+            f"({score_0_1:.0%} of requirements pass this check)."
+        )
+    else:
+        justification = f"Deterministic lint: no issues found ({score_0_1:.0%} pass)."
+    issue_strings = [
+        f"{i.requirement_id or '(document)'}: {i.message}" for i in relevant[:5]
+    ]
+    return score_1_5, justification, issue_strings
 
 
 class EvaluatorAgent(Agent):
@@ -137,6 +172,12 @@ class EvaluationRecord:
     ) -> "EvaluationRecord":
         """Build one record from an evaluator verdict.
 
+        Only fills :data:`~config.prompts.LLM_EVALUATION_DIMENSIONS`
+        (completeness, clarity) — the verdict no longer carries
+        testability/consistency at all, since the model is never asked
+        for them (see the module note in ``config/prompts.py``). Call
+        :meth:`apply_lint` afterwards to fill those two deterministically.
+
         Args:
             case_id: Test case identifier.
             architecture: Condition that produced the SRS.
@@ -144,18 +185,42 @@ class EvaluationRecord:
             verdict: Parsed evaluator verdict.
 
         Returns:
-            A populated :class:`EvaluationRecord`.
+            A populated :class:`EvaluationRecord`, missing the
+            deterministic dimensions until :meth:`apply_lint` runs.
         """
         record = cls(
             case_id=case_id, architecture=architecture, repetition=repetition,
             overall=str(verdict.get("overall", "")),
         )
-        for dim in DIMENSIONS:
+        for dim in prompts.LLM_EVALUATION_DIMENSIONS:
             block = verdict.get(dim, {}) or {}
             record.scores[dim] = int(block.get("score", 0))
             record.justifications[dim] = str(block.get("justification", ""))
             record.issues[dim] = [str(i) for i in (block.get("issues", []) or [])]
         return record
+
+    def apply_lint(self, lint_result: LintResult) -> None:
+        """Fill the testability and consistency dimensions deterministically.
+
+        These two are mechanical enough that :mod:`evaluation.linter`
+        already checks them exactly (measurable acceptance criteria,
+        unique/resolvable requirement ids) — see the module note in
+        ``config/prompts.py`` for why they're no longer asked of the LLM.
+
+        Args:
+            lint_result: The Layer-1 lint result for the same SRS this
+                record scores.
+        """
+        for dim, score_0_1 in (
+            ("testability", lint_result.testability_score),
+            ("consistency", lint_result.consistency_score),
+        ):
+            score, justification, issues = _dimension_from_lint(
+                score_0_1, lint_result.issues, dim,
+            )
+            self.scores[dim] = score
+            self.justifications[dim] = justification
+            self.issues[dim] = issues
 
 
 # --------------------------------------------------------------------------
@@ -199,10 +264,18 @@ def score_srs(
     )
     evaluator = EvaluatorAgent(client, context)
     verdict = evaluator.score(description, srs_markdown)
-    return EvaluationRecord.from_verdict(
+    record = EvaluationRecord.from_verdict(
         case_id=case_id, architecture=architecture,
         repetition=repetition, verdict=verdict,
     )
+
+    # Testability and consistency are mechanical enough to check without a
+    # second LLM call — see the module note in config/prompts.py.
+    requirements = parse_requirements(srs_markdown)
+    lint_result = lint_srs(srs_markdown, requirements)
+    record.apply_lint(lint_result)
+
+    return record
 
 
 def write_evaluation(records: list[EvaluationRecord], output_path: Path) -> None:

@@ -43,6 +43,7 @@ import argparse
 import json
 import sys
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
@@ -52,7 +53,23 @@ from architectures.peer_to_peer import PeerToPeerResult, run_peer_to_peer
 from baseline_single_prompt import BaselineResult, run_baseline
 from config.settings import ConfigurationError, Settings
 from evaluation.export_for_raters import SrsArtifact, export_for_raters
-from evaluation.rubric import EvaluationRecord, score_srs, write_evaluation
+from evaluation.grounded_grader import grade_grounding
+from evaluation.knowledge_base import detect_domain, get_domain_kb
+from evaluation.linter import lint_srs
+from evaluation.rubric import (
+    DIMENSIONS as EVALUATION_DIMENSIONS,
+    EvaluationRecord,
+    aggregate_by_architecture,
+    score_srs,
+    write_evaluation,
+)
+from evaluation.scoring import (
+    ArchitectureScore,
+    OverallResult,
+    compute_architecture_score,
+    compute_overall,
+)
+from evaluation.srs_parser import parse_requirements
 from test_cases.cases import TEST_CASES, TestCase, get_case
 from utils.llm_client import LLMClient, LLMClientError
 from utils.logging import ExperimentLogger
@@ -98,6 +115,8 @@ class RunManifest:
         outcomes: One entry per (architecture, case, repetition) attempted.
         evaluation_path: Path to the evaluation output, if written.
         rater_export_path: Path to the rater export directory, if written.
+        grounded_scores_path: Path to the grounded-scoring output (KB
+            coverage/faithfulness + composite ranking), if written.
     """
 
     run_id: str
@@ -105,6 +124,7 @@ class RunManifest:
     outcomes: list[dict[str, Any]] = field(default_factory=list)
     evaluation_path: str | None = None
     rater_export_path: str | None = None
+    grounded_scores_path: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serialisable snapshot."""
@@ -114,6 +134,7 @@ class RunManifest:
             "outcomes": self.outcomes,
             "evaluation_path": self.evaluation_path,
             "rater_export_path": self.rater_export_path,
+            "grounded_scores_path": self.grounded_scores_path,
         }
 
 
@@ -158,6 +179,14 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument(
         "--skip-rater-export", action="store_true",
         help="Skip the anonymised export for human raters.",
+    )
+    parser.add_argument(
+        "--skip-grounding", action="store_true",
+        help=(
+            "Skip grounded scoring (knowledge-base coverage/faithfulness "
+            "+ deterministic lint). Cases whose domain has no knowledge "
+            "base are skipped automatically even when this is not set."
+        ),
     )
     parser.add_argument(
         "--yes", action="store_true",
@@ -322,6 +351,53 @@ def _print_plan(architectures: list[str], cases: list[str], repetitions: int) ->
     print()
 
 
+def _log_evaluation_summary(eval_records: list[EvaluationRecord], logger: ExperimentLogger) -> None:
+    """Log each architecture's mean rubric score and the leader, to the narrative log.
+
+    A no-op with fewer than two scored architectures — nothing to rank.
+    Mirrors ui/app.py's ``_render_rubric_summary`` so the UI banner and the
+    log line always agree on the same numbers and the same winner.
+    """
+    if not eval_records:
+        return
+    means = aggregate_by_architecture(eval_records)
+    if len(means) < 2:
+        return
+
+    max_total = len(EVALUATION_DIMENSIONS) * 5
+    totals = {arch: sum(dims.values()) for arch, dims in means.items()}
+    ranked = sorted(totals, key=lambda a: (-totals[a], a))
+
+    logger.info("=== rubric scores by architecture ===")
+    for arch in ranked:
+        breakdown = " ".join(f"{d}={means[arch][d]:.1f}" for d in EVALUATION_DIMENSIONS)
+        logger.info("  %-24s total=%.1f/%d  (%s)", arch, totals[arch], max_total, breakdown)
+    logger.info("📋 Rubric leader: %s (%.1f/%d)", ranked[0], totals[ranked[0]], max_total)
+
+
+def _log_grounded_summary(overall: OverallResult, logger: ExperimentLogger) -> None:
+    """Log each architecture's grounded composite score and the winner.
+
+    A no-op with fewer than two scored architectures — nothing to rank.
+    Mirrors ui/app.py's ``_render_grounded_winner`` so the UI banner and
+    the log line always agree.
+    """
+    if len(overall.summaries) < 2:
+        return
+
+    logger.info("=== grounded scores by architecture ===")
+    for s in overall.summaries:
+        logger.info(
+            "  %-24s composite=%.2f coverage=%.0f%% faithfulness=%.0f%% "
+            "quality=%.0f%% won=%d/%d",
+            s.architecture, s.mean_composite, s.mean_coverage * 100,
+            s.mean_faithfulness * 100, s.mean_quality * 100,
+            s.cases_won, s.cases_scored,
+        )
+    winner = overall.summaries[0]
+    logger.info("🏆 Grounded winner: %s (composite %.2f)", winner.architecture, winner.mean_composite)
+
+
 def run_matrix(
     *,
     settings: Settings,
@@ -331,6 +407,7 @@ def run_matrix(
     logger: ExperimentLogger,
     skip_evaluation: bool = False,
     skip_rater_export: bool = False,
+    skip_grounding: bool = False,
 ) -> tuple[RunManifest, list[RunOutcome]]:
     """Run the full (architecture x case x repetition) matrix and post-steps.
 
@@ -351,6 +428,11 @@ def run_matrix(
         logger: The active experiment logger.
         skip_evaluation: If ``True``, skip the LLM-as-judge scoring step.
         skip_rater_export: If ``True``, skip the anonymised rater export.
+        skip_grounding: If ``True``, skip grounded scoring entirely. When
+            ``False`` (the default), grounded scoring still only runs for
+            cases whose domain has a knowledge base registered under
+            ``knowledge_bases/`` — cases with no matching domain are
+            skipped with a log line, never guessed at.
 
     Returns:
         A tuple of the written :class:`RunManifest` and the list of
@@ -401,6 +483,37 @@ def run_matrix(
         eval_path = settings.run_dir / "evaluation.json"
         write_evaluation(eval_records, eval_path)
         manifest.evaluation_path = str(eval_path)
+        _log_evaluation_summary(eval_records, logger)
+
+    # ---- Grounded scoring ---------------------------------------------
+    if not skip_grounding and artefacts_by_key:
+        logger.info("=== grounded scoring ===")
+        grounded_scores = _run_grounded_scoring(
+            artefacts_by_key=artefacts_by_key, cases=cases,
+            client=client, logger=logger,
+        )
+        if grounded_scores:
+            grounded_path = settings.run_dir / "grounded_scores.json"
+            overall = compute_overall(grounded_scores)
+            _log_grounded_summary(overall, logger)
+            grounded_path.write_text(
+                json.dumps(
+                    {
+                        "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        "scores": [s.to_dict() for s in grounded_scores],
+                        "overall": overall.to_dict(),
+                    },
+                    indent=2, sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            manifest.grounded_scores_path = str(grounded_path)
+        else:
+            logger.info(
+                "No case in this run has a registered knowledge-base "
+                "domain; grounded scoring produced nothing."
+            )
 
     # ---- Rater export ------------------------------------------------
     if not skip_rater_export and artefacts_by_key:
@@ -459,6 +572,7 @@ def main(argv: list[str] | None = None) -> int:
             client=client, logger=logger,
             skip_evaluation=args.skip_evaluation,
             skip_rater_export=args.skip_rater_export,
+            skip_grounding=args.skip_grounding,
         )
 
     failed = sum(1 for o in outcomes if o.error is not None)
@@ -496,6 +610,64 @@ def _run_evaluation(
             continue
         records.append(record)
     return records
+
+
+def _run_grounded_scoring(
+    *,
+    artefacts_by_key: dict[tuple[str, str, int], Path],
+    cases: Iterable[TestCase],
+    client: LLMClient,
+    logger: ExperimentLogger,
+) -> list[ArchitectureScore]:
+    """Run the grounded-scoring stack (parse -> lint -> grade -> score) on
+    every produced SRS whose case's domain has a registered knowledge base.
+
+    Cases with no matching domain are skipped with an info log line, not an
+    error — most cases will have no KB until more domains are researched,
+    and that must never look like a failure. Failures scoring an
+    individual artefact are logged and skipped, same policy as
+    :func:`_run_evaluation`, so one bad grade does not abort the run.
+    """
+    case_by_id = {c.case_id: c for c in cases}
+    scores: list[ArchitectureScore] = []
+    for (architecture, case_id, repetition), srs_path in artefacts_by_key.items():
+        case = case_by_id[case_id]
+        domain = detect_domain(case_id=case_id, description=case.description)
+        if domain is None:
+            logger.info(
+                "Grounded scoring SKIPPED for %s / %s / rep %d: no "
+                "registered knowledge-base domain matches this case.",
+                architecture, case_id, repetition,
+            )
+            continue
+        domain_kb = get_domain_kb(domain)
+        if domain_kb is None or not domain_kb.facts:
+            logger.info(
+                "Grounded scoring SKIPPED for %s / %s / rep %d: domain "
+                "%r has no usable knowledge base.",
+                architecture, case_id, repetition, domain,
+            )
+            continue
+        try:
+            srs_markdown = srs_path.read_text(encoding="utf-8")
+            requirements = parse_requirements(srs_markdown)
+            lint_result = lint_srs(srs_markdown, requirements)
+            grade_result = grade_grounding(
+                case_id=case_id, architecture=architecture, repetition=repetition,
+                requirements=requirements, domain_kb=domain_kb, client=client,
+            )
+            score = compute_architecture_score(
+                architecture=architecture, case_id=case_id, repetition=repetition,
+                domain_kb=domain_kb, lint_result=lint_result, grade_result=grade_result,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "Grounded scoring FAILED for %s / %s / rep %d: %s",
+                architecture, case_id, repetition, exc, exc_info=True,
+            )
+            continue
+        scores.append(score)
+    return scores
 
 
 if __name__ == "__main__":

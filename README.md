@@ -42,6 +42,112 @@ variable is how the agents are wired together.
 web-based project management tool, a university e-learning platform, and a
 smart-home automation system.
 
+### End-to-end architecture
+
+Everything below is real, current code — every node names the actual file or
+function it represents, not a conceptual stand-in. `baseline_single_prompt`
+is drawn separately because it genuinely bypasses the five shared agents and
+`format_srs_markdown()` entirely: it is one LLM call whose prompt
+(`BASELINE_SYSTEM`) asks the model to output the fully-formatted document
+directly. The other three architectures share the same five agents and the
+same assembly function; they differ only in how they wire agent calls
+together (see the architecture table above).
+
+```mermaid
+flowchart TD
+    subgraph INPUT["1. Input"]
+        FIXED["4 fixed test cases<br/>test_cases/cases.py<br/>(Run experiment tab)"]
+        ADHOC["Free-text description<br/>(Try your own idea tab)"]
+        GUARD{{"InputGuardAgent<br/>agents/input_guard.py<br/>'is this a system description?'"}}
+        ADHOC --> GUARD
+        GUARD -->|no| REJECT(["Rejected in the UI —<br/>nothing generated"])
+    end
+
+    subgraph ARCH["2. Architecture dispatch — run_matrix(), run_experiment.py"]
+        BASE["baseline_single_prompt.py<br/>ONE call, BASELINE_SYSTEM prompt<br/>bypasses the 5 agents entirely"]
+        MULTI["hierarchical.py / peer_to_peer.py / debate.py<br/>same 5 agents, different wiring<br/>(independent vs peer-review vs 2x-instance debate)"]
+    end
+    FIXED --> ARCH
+    GUARD -->|yes| ARCH
+
+    subgraph AGENTS["3. Shared agents — agents/*.py (agents/base.py Agent)"]
+        ORCH["Orchestrator<br/>orchestrator.py<br/>plans: stakeholders, scope, delegation"]
+        FUNC["Functional Requirements<br/>functional_agent.py — FR-NNN"]
+        NFUNC["Non-Functional Requirements<br/>nonfunctional_agent.py — NFR-NNN"]
+        RISKA["Risk & Clarification<br/>risk_agent.py"]
+        VERIFY["Verification<br/>verification_agent.py<br/>± revision loop; arbitrates in debate"]
+        ORCH --> FUNC --> NFUNC --> RISKA --> VERIFY
+    end
+    MULTI --> ORCH
+
+    ASSEMBLE["format_srs_markdown()<br/>architectures/hierarchical.py<br/>(imported by peer_to_peer.py, debate.py)"]
+    VERIFY --> ASSEMBLE
+
+    subgraph BACKEND["4. LLM backend — utils/llm_client.py"]
+        CALL["Agent._call() → LLMClient.call()<br/>logs every interaction"]
+        DISPATCH["build_backend(settings)"]
+        PROVIDER["Provider backend<br/>Ollama — active this session<br/>Anthropic, Groq — implemented<br/>OpenAI / OpenRouter / Gemini — settings wired,<br/>backend classes not yet finished"]
+        CALL --> DISPATCH --> PROVIDER
+    end
+    BASE -.->|1 call| CALL
+    ORCH -.-> CALL
+    FUNC -.-> CALL
+    NFUNC -.-> CALL
+    RISKA -.-> CALL
+    VERIFY -.-> CALL
+
+    SRS["srs_&lt;case&gt;_&lt;arch&gt;_rep&lt;n&gt;.md"]
+    BASE --> SRS
+    ASSEMBLE --> SRS
+
+    subgraph GROUND["5. Grounding &amp; scoring — run after every generation, evaluation/*.py"]
+        PARSE["srs_parser.py<br/>parse_requirements() — tolerant regex parser"]
+        LINT["linter.py — deterministic, NO LLM<br/>ambiguity · testability · structure · consistency"]
+        DETECT["knowledge_base.py<br/>detect_domain() — exact case_id, then keyword"]
+        KBFILES[("knowledge_bases/*.json<br/>restaurant · project_management<br/>elearning · smart_home<br/>status: draft — Gate A pending")]
+        GRADER["GroundedGraderAgent<br/>grounded_grader.py<br/>ATOMIC: fact present? yes/partial/no<br/>requirement contradicts a fact? true/false"]
+        SCORE["scoring.py — deterministic, NO LLM<br/>composite = .40·coverage + .35·faithfulness + .25·quality"]
+        EVALAGENT["EvaluatorAgent<br/>rubric.py — LLM only for:<br/>completeness, clarity"]
+
+        PARSE --> LINT
+        PARSE --> DETECT --> KBFILES --> GRADER
+        PARSE --> GRADER
+        LINT --> SCORE
+        GRADER --> SCORE
+        LINT -.->|testability, consistency filled deterministically| EVALAGENT
+    end
+    SRS --> PARSE
+    SRS --> EVALAGENT
+    EVALAGENT -.-> CALL
+    GRADER -.-> CALL
+
+    subgraph FILES["6. Run directory — outputs/run_&lt;id&gt;/ or outputs/adhoc/run_&lt;id&gt;/"]
+        EVALJSON["evaluation.json"]
+        GROUNDJSON["grounded_scores.json"]
+        RUNLOG["run.log — includes<br/>📋 Rubric leader / 🏆 Grounded winner"]
+    end
+    EVALAGENT --> EVALJSON
+    SCORE --> GROUNDJSON
+    CALL --> RUNLOG
+
+    subgraph UI["7. Streamlit dashboard — ui/app.py"]
+        TABS["Run experiment · Try your own idea · Browse past runs"]
+        PHASE["phase_tracker.py<br/>live structured progress view"]
+        WINBANNER["Winner banners:<br/>🏆 grounded (2+ arch) · 📊 single score (1 arch)<br/>📋 rubric leaderboard (fallback, no KB for that domain)"]
+    end
+    SRS --> TABS
+    EVALJSON --> WINBANNER
+    GROUNDJSON --> WINBANNER
+    RUNLOG --> PHASE
+    TABS --> WINBANNER
+```
+
+**Legend / reading notes:**
+- **Solid arrows** = real control/data flow in the code. **Dotted arrows** = "calls the LLM backend" or "merges into" (kept dotted purely to reduce visual clutter from every agent individually fanning into `CALL`).
+- Every LLM call in the diagram — generation, evaluation, grounded grading, and the input guard — passes through the **same** `LLMClient.call()` (`BACKEND` subgraph), so every interaction is logged identically to `llm_interactions.jsonl` regardless of which part of the pipeline issued it.
+- Only `GroundedGraderAgent` and `EvaluatorAgent`'s two LLM-judged dimensions (completeness, clarity) involve model *judgment*. Everything in `linter.py` and `scoring.py` — ambiguity, testability, structure, consistency, coverage, faithfulness, quality, the composite score, and the final ranking — is deterministic Python arithmetic over structured data, not a model opinion.
+- `InputGuardAgent` and the knowledge-base domain gate (`detect_domain()` returning no match) are two independent pre-flight checks on the "Try your own idea" tab only — the formal tab's four test cases never need either, since they're fixed and already known-good.
+
 ---
 
 ## 2. Current status

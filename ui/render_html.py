@@ -491,10 +491,29 @@ _JS = """
   var sidebarToggle = document.getElementById('sidebar-toggle');
   if (sidebarToggle) {
     sidebarToggle.addEventListener('click', function () { sidebar.classList.toggle('open'); });
-    document.querySelectorAll('.toc-link').forEach(function (a) {
-      a.addEventListener('click', function () { sidebar.classList.remove('open'); });
-    });
   }
+
+  // ---- TOC clicks: scroll within this document, never let the browser
+  // handle the fragment natively. This page is normally embedded via
+  // Streamlit's components.v1.html(), which loads it into an iframe via
+  // `srcdoc` — some browsers resolve a bare `href="#id"` against the
+  // *embedding* page's URL in that context instead of this document,
+  // which reads as the click "redirecting to the Streamlit tab" instead
+  // of jumping to the section. Doing the scroll ourselves sidesteps that
+  // entirely, regardless of the browser's srcdoc fragment-resolution quirk.
+  document.querySelectorAll('.toc-link').forEach(function (a) {
+    a.addEventListener('click', function (e) {
+      var id = a.dataset.target;
+      var target = id && document.getElementById(id);
+      if (target) {
+        e.preventDefault();
+        var section = target.closest('.srs-section') || target;
+        if (section.tagName === 'DETAILS' && !section.open) { section.open = true; }
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      if (sidebar) { sidebar.classList.remove('open'); }
+    });
+  });
 
   // ---- Scroll progress + back-to-top ----
   var progress = document.getElementById('scroll-progress');

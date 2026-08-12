@@ -168,11 +168,11 @@ def run_debate(
     # the arbitrated FR/NFR text as their canonical premise ---------------
     logger.info("[debate/%s rep=%d] arbitrate FR", case_id, repetition)
     fr_arbitration = _arbitrate(
-        verification, "functional", description, brief_json, fr_final_a, fr_final_b
+        verification, "functional", description, brief_json, fr_final_a, fr_final_b, logger,
     )
     logger.info("[debate/%s rep=%d] arbitrate NFR", case_id, repetition)
     nfr_arbitration = _arbitrate(
-        verification, "nonfunctional", description, brief_json, nfr_final_a, nfr_final_b
+        verification, "nonfunctional", description, brief_json, nfr_final_a, nfr_final_b, logger,
     )
 
     logger.info("[debate/%s rep=%d] risk rebuttal A", case_id, repetition)
@@ -190,7 +190,7 @@ def run_debate(
 
     logger.info("[debate/%s rep=%d] arbitrate risk", case_id, repetition)
     risk_arbitration = _arbitrate(
-        verification, "risk", description, brief_json, risk_final_a, risk_final_b
+        verification, "risk", description, brief_json, risk_final_a, risk_final_b, logger,
     )
     arbitrations = [fr_arbitration, nfr_arbitration, risk_arbitration]
 
@@ -382,6 +382,19 @@ def _rebut_risk(
     ).text
 
 
+#: Below this length, ``chosen_section_markdown`` cannot plausibly be a
+#: real SRS section (even the shortest section has several requirement
+#: lines) — see the fallback note in :func:`_arbitrate` below.
+_MIN_CHOSEN_MARKDOWN_LENGTH = 80
+
+#: Values seen in practice where the model echoes the *verdict* word back
+#: into the *chosen_section_markdown* field instead of putting the actual
+#: synthesised text there (observed reliably with smaller local models,
+#: e.g. mistral via Ollama) — these are the same enum values the schema
+#: uses for ``verdict``, which is the tell that the fields got crossed.
+_DEGENERATE_MARKDOWN_VALUES = {"synthesis", "position_a", "position_b", "position a", "position b"}
+
+
 def _arbitrate(
     verification: VerificationAgent,
     section: str,
@@ -389,6 +402,7 @@ def _arbitrate(
     brief_json: str,
     position_a: str,
     position_b: str,
+    logger: ExperimentLogger,
 ) -> DebateArbitration:
     """Ask the verification agent to arbitrate one section of the debate.
 
@@ -407,9 +421,31 @@ def _arbitrate(
         "Arbitration was requested to return a JSON object but the parsed "
         "response was not a dict; this is a logic error."
     )
+    verdict = str(result.parsed_json["verdict"])
+    chosen_markdown = str(result.parsed_json["chosen_section_markdown"]).strip()
+
+    # Defensive fallback: the model is asked for three fields — verdict
+    # (an enum word), rationale (prose), and chosen_section_markdown (the
+    # full section text) — and smaller models sometimes cross the first
+    # and third, writing "synthesis" itself into chosen_section_markdown
+    # while dumping the real content into rationale instead. Shipping a
+    # one-word section into the SRS is worse than falling back to a full,
+    # real position, so validate length/content before trusting the field.
+    if (
+        len(chosen_markdown) < _MIN_CHOSEN_MARKDOWN_LENGTH
+        or chosen_markdown.lower().rstrip(".") in _DEGENERATE_MARKDOWN_VALUES
+    ):
+        logger.warning(
+            "Arbitration for %r returned an unusable chosen_section_markdown "
+            "(%r) — falling back to position_%s's full text instead of "
+            "shipping a one-word section into the SRS.",
+            section, chosen_markdown, "b" if verdict == "position_b" else "a",
+        )
+        chosen_markdown = position_b if verdict == "position_b" else position_a
+
     return DebateArbitration(
         section=section,
-        verdict=result.parsed_json["verdict"],
-        rationale=result.parsed_json.get("rationale", ""),
-        chosen_markdown=result.parsed_json["chosen_section_markdown"],
+        verdict=verdict,
+        rationale=str(result.parsed_json.get("rationale", "")),
+        chosen_markdown=chosen_markdown,
     )

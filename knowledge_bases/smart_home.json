@@ -1,0 +1,63 @@
+{
+  "domain": "smart_home",
+  "status": "draft",
+  "researched_at": "2026-08-10T00:00:00Z",
+  "matched_case_ids": ["TC-04_smart_home"],
+  "keywords": ["smart home", "iot", "automation", "thermostat", "camera", "lock", "home automation", "connected device", "sensor"],
+  "facts": [
+    {
+      "id": "KB-SMARTHOME-001",
+      "section": "Device security",
+      "category": "nonfunctional",
+      "weight": 2.0,
+      "statement": "No universal default passwords — each device or account must ship with a password unique per unit, or require the user to set their own credentials before first use.",
+      "source_title": "Most Important Parts of ETSI EN 303 645 Standard",
+      "source_url": "https://www.cclab.com/news/most-important-parts-of-etsi-en-303-645-standard-enhancing-cybersecurity-for-consumer-iot-devices"
+    },
+    {
+      "id": "KB-SMARTHOME-002",
+      "section": "Device security",
+      "category": "nonfunctional",
+      "weight": 1.5,
+      "statement": "The product must have a published vulnerability disclosure policy and support timely software/firmware updates.",
+      "source_title": "Most Important Parts of ETSI EN 303 645 Standard",
+      "source_url": "https://www.cclab.com/news/most-important-parts-of-etsi-en-303-645-standard-enhancing-cybersecurity-for-consumer-iot-devices"
+    },
+    {
+      "id": "KB-SMARTHOME-003",
+      "section": "Device security",
+      "category": "nonfunctional",
+      "weight": 2.0,
+      "statement": "Under California SB-327 (for any device sold in California), if a device can be authenticated from outside the local network, it must use a preprogrammed password unique to each device, or require the user to generate new credentials on first access.",
+      "source_title": "Understanding the California IoT Security Law (SB-327)",
+      "source_url": "https://www.upguard.com/blog/california-iot-security-law"
+    },
+    {
+      "id": "KB-SMARTHOME-004",
+      "section": "Device security",
+      "category": "nonfunctional",
+      "weight": 2.0,
+      "statement": "Commands to safety-critical devices (door locks, cameras) must be encrypted in transit and mutually authenticated between app and device.",
+      "source_title": "Understanding the California IoT Security Law (SB-327)",
+      "source_url": "https://www.upguard.com/blog/california-iot-security-law"
+    },
+    {
+      "id": "KB-SMARTHOME-005",
+      "section": "Interoperability",
+      "category": "functional",
+      "weight": 1.0,
+      "statement": "Device control should support the Matter interoperability standard, so a device can be registered with multiple controllers/ecosystems (multi-admin) rather than being locked to one proprietary hub.",
+      "source_title": "Matter & Thread: Smart Home Interoperability in 2026",
+      "source_url": "https://beyondtmrw.org/article/matter-13-and-thread-smart-home-interoperability-in-2026"
+    },
+    {
+      "id": "KB-SMARTHOME-006",
+      "section": "Privacy",
+      "category": "nonfunctional",
+      "weight": 1.5,
+      "statement": "Location- and occupancy-derived data (from automation routines and energy insights) must be collected under informed consent with data minimisation, consistent with GDPR/CCPA-style requirements.",
+      "source_title": "What Is GDPR Compliance in 2026",
+      "source_url": "https://pitchnhire.com/blog/gdpr-compliance-2026"
+    }
+  ]
+}

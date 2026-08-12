@@ -1,0 +1,63 @@
+{
+  "domain": "elearning",
+  "status": "draft",
+  "researched_at": "2026-08-10T00:00:00Z",
+  "matched_case_ids": ["TC-03_elearning_platform"],
+  "keywords": ["e-learning", "elearning", "course", "university", "student", "instructor", "lms", "assignment", "assessment", "enrolment", "enrollment"],
+  "facts": [
+    {
+      "id": "KB-ELEARN-001",
+      "section": "Student privacy (FERPA)",
+      "category": "functional",
+      "weight": 2.0,
+      "statement": "Written consent from the student (or parent, if the student is under 18) is required before disclosing education records; the platform must offer an annual opt-out for directory information.",
+      "source_title": "FERPA Compliance in 2026: A Guide for University Cybersecurity Leaders",
+      "source_url": "https://www.virtru.com/blog/compliance/ferpa/universities"
+    },
+    {
+      "id": "KB-ELEARN-002",
+      "section": "Student privacy (FERPA)",
+      "category": "nonfunctional",
+      "weight": 2.0,
+      "statement": "Any third-party vendor or integration handling student data must operate under a signed FERPA-compliant data agreement, and the platform must log every access to a student's education record.",
+      "source_title": "What FERPA Actually Requires of an Edtech Platform",
+      "source_url": "https://rizon.agency/blog/what-ferpa-actually-requires-of-an-edtech-platform"
+    },
+    {
+      "id": "KB-ELEARN-003",
+      "section": "Student privacy (FERPA)",
+      "category": "functional",
+      "weight": 1.5,
+      "statement": "Students must gain direct access rights to their own education records once they turn 18 or enrol at the postsecondary level (FERPA's transfer of rights from parent to student).",
+      "source_title": "Student Data Privacy & FERPA Guide: School Records Rights (2026)",
+      "source_url": "https://www.recordinglaw.com/us-laws/united-states-child-support-laws/student-data-privacy-ferpa/"
+    },
+    {
+      "id": "KB-ELEARN-004",
+      "section": "Accessibility",
+      "category": "nonfunctional",
+      "weight": 2.0,
+      "statement": "Course content and the platform UI should conform to WCAG 2.1/2.2 Level AA, matching the accessibility bar the DOJ's Title II digital-accessibility rule sets for public higher-education institutions.",
+      "source_title": "Title II Video Accessibility: What WCAG 2.1 AA Requires",
+      "source_url": "https://gotranscript.com/public/title-ii-video-accessibility-what-wcag-21-aa-requires"
+    },
+    {
+      "id": "KB-ELEARN-005",
+      "section": "Accessibility",
+      "category": "functional",
+      "weight": 1.5,
+      "statement": "All instructional video must carry accurate, synchronised closed captions with speaker identification — burned-in captions don't qualify, and auto-generated captions must be edited for accuracy rather than relied on alone.",
+      "source_title": "Video Captioning Requirements: WCAG 2.2 Media Accessibility Compliance",
+      "source_url": "https://testparty.ai/blog/video-captioning-requirements"
+    },
+    {
+      "id": "KB-ELEARN-006",
+      "section": "Content interoperability",
+      "category": "nonfunctional",
+      "weight": 1.0,
+      "statement": "Course content should be exportable in a standard interoperable format (SCORM and/or xAPI) so it is not locked into a single LMS.",
+      "source_title": "E-Learning Standards: A Comprehensive Guide to SCORM, xAPI, CMI5, and Modern LMS Compliance",
+      "source_url": "https://www.eleapsoftware.com/glossary/e-learning-standards-a-comprehensive-guide-to-scorm-xapi-cmi5-and-modern-lms-compliance/"
+    }
+  ]
+}

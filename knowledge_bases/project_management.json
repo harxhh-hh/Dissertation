@@ -1,0 +1,81 @@
+{
+  "domain": "project_management",
+  "status": "draft",
+  "researched_at": "2026-08-10T00:00:00Z",
+  "matched_case_ids": ["TC-02_project_management"],
+  "keywords": ["project management", "task", "kanban", "sprint", "project tracking", "team collaboration", "git integration", "issue tracker"],
+  "facts": [
+    {
+      "id": "KB-PM-001",
+      "section": "Privacy & data protection",
+      "category": "nonfunctional",
+      "weight": 1.5,
+      "statement": "The platform should minimise personal data collected on projects/users, conduct a data protection impact assessment before adding features that process new categories of personal data, and maintain records of processing activity (GDPR/CCPA).",
+      "source_title": "What Is GDPR Compliance in 2026",
+      "source_url": "https://pitchnhire.com/blog/gdpr-compliance-2026"
+    },
+    {
+      "id": "KB-PM-002",
+      "section": "Privacy & data protection",
+      "category": "nonfunctional",
+      "weight": 1.5,
+      "statement": "Project and user data must be encrypted both at rest and in transit.",
+      "source_title": "What Is GDPR Compliance in 2026",
+      "source_url": "https://pitchnhire.com/blog/gdpr-compliance-2026"
+    },
+    {
+      "id": "KB-PM-003",
+      "section": "File sharing",
+      "category": "functional",
+      "weight": 2.0,
+      "statement": "Uploaded files must be validated server-side with a format-specific parser (not by file extension or client-supplied Content-Type alone), renamed on the server, and never served directly from a user-writable path.",
+      "source_title": "File Upload - OWASP Cheat Sheet Series",
+      "source_url": "https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html"
+    },
+    {
+      "id": "KB-PM-004",
+      "section": "File sharing",
+      "category": "nonfunctional",
+      "weight": 2.0,
+      "statement": "Every uploaded file must be scanned for malicious content before it is made accessible to other users.",
+      "source_title": "Unrestricted File Upload — OWASP Foundation",
+      "source_url": "https://owasp.org/www-community/vulnerabilities/Unrestricted_File_Upload"
+    },
+    {
+      "id": "KB-PM-005",
+      "section": "Integrations",
+      "category": "nonfunctional",
+      "weight": 1.5,
+      "statement": "Third-party integrations (e.g. Git hosting) must authenticate via OAuth 2.0 Authorization Code flow with PKCE and a CSRF-protecting state parameter; production redirect URIs must use HTTPS.",
+      "source_title": "OAuth 2.0 identity provider API — GitLab",
+      "source_url": "https://docs.gitlab.com/api/oauth2"
+    },
+    {
+      "id": "KB-PM-006",
+      "section": "Accessibility",
+      "category": "nonfunctional",
+      "weight": 1.5,
+      "statement": "The web application should conform to WCAG 2.2 Level AA.",
+      "source_title": "WCAG 2.2 Accessibility Standards: Complete 2026 Compliance Guide",
+      "source_url": "https://www.webability.io/blog/wcag-2-2-accessibility-standards-complete-2026-compliance-guide"
+    },
+    {
+      "id": "KB-PM-007",
+      "section": "Audit & compliance",
+      "category": "nonfunctional",
+      "weight": 1.5,
+      "statement": "The system must maintain an immutable audit log of user actions (task changes, permission changes, file access) for compliance review and security investigation.",
+      "source_title": "Enterprise Ready SaaS App Guide to Audit Logging",
+      "source_url": "https://www.enterpriseready.io/features/audit-log/"
+    },
+    {
+      "id": "KB-PM-008",
+      "section": "Privacy & data protection",
+      "category": "risk",
+      "weight": 1.0,
+      "statement": "A data retention policy should ensure data is not kept longer than necessary for the purpose it was collected for.",
+      "source_title": "The Ultimate Guide to Data Compliance in 2026",
+      "source_url": "https://www.cookieyes.com/blog/data-compliance/"
+    }
+  ]
+}

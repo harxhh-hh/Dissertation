@@ -1,0 +1,90 @@
+{
+  "domain": "restaurant",
+  "status": "draft",
+  "researched_at": "2026-08-10T00:00:00Z",
+  "matched_case_ids": ["TC-01_restaurant_app"],
+  "keywords": ["restaurant", "menu", "dining", "cafe", "food order", "takeout", "allergen"],
+  "facts": [
+    {
+      "id": "KB-RESTAURANT-001",
+      "section": "Payments",
+      "category": "nonfunctional",
+      "weight": 2.0,
+      "statement": "The app must not store raw card data itself; card payment must use tokenization or a PCI DSS-scoped hosted field/SDK so cardholder data never touches the app's own servers.",
+      "source_title": "PCI DSS Compliance for Mobile Payment Apps",
+      "source_url": "https://www.decryptcode.com/blog/pci-dss-mobile-payment-app/"
+    },
+    {
+      "id": "KB-RESTAURANT-002",
+      "section": "Payments",
+      "category": "nonfunctional",
+      "weight": 2.0,
+      "statement": "Card data must never be logged, cached, or written to crash/debug logs by the application.",
+      "source_title": "PCI DSS Compliance for Mobile Payment Apps",
+      "source_url": "https://www.decryptcode.com/blog/pci-dss-mobile-payment-app/"
+    },
+    {
+      "id": "KB-RESTAURANT-003",
+      "section": "Payments",
+      "category": "nonfunctional",
+      "weight": 1.5,
+      "statement": "Accounts with elevated privileges (manager/admin roles) must require multi-factor authentication.",
+      "source_title": "PCI DSS v4.0.1 Sets New Baseline For Cardholder Data Security",
+      "source_url": "https://www.brightdefense.com/news/pci-dss-v4-0-1-sets-new-baseline-for-cardholder-data-security/"
+    },
+    {
+      "id": "KB-RESTAURANT-004",
+      "section": "Menu & food safety",
+      "category": "functional",
+      "weight": 2.0,
+      "statement": "For a restaurant chain with 20 or more locations, major food allergens must be clearly disclosed per menu item, either directly on the menu or in a digital format, by 1 July 2026 (California's Allergen Disclosure for Dining Experiences Act).",
+      "source_title": "California restaurant menus are facing a big change about disclosing food allergens",
+      "source_url": "https://www.aol.com/news/california-restaurant-menus-facing-big-175739330.html"
+    },
+    {
+      "id": "KB-RESTAURANT-005",
+      "section": "Menu & food safety",
+      "category": "functional",
+      "weight": 1.5,
+      "statement": "Allergen disclosure must cover, at minimum, the 'Big Nine' allergens: milk, eggs, fish, shellfish, tree nuts, peanuts, wheat, soybeans, and sesame.",
+      "source_title": "Food Allergies: The Big 9 — Food Safety and Inspection Service",
+      "source_url": "https://www.fsis.usda.gov/food-safety/safe-food-handling-and-preparation/food-safety-basics/food-allergies-big-9"
+    },
+    {
+      "id": "KB-RESTAURANT-006",
+      "section": "Accessibility",
+      "category": "nonfunctional",
+      "weight": 1.5,
+      "statement": "The customer-facing app should conform to WCAG 2.2 Level AA, matching the accessibility bar 2026 U.S. federal and state digital-accessibility rules are converging on.",
+      "source_title": "WCAG 2.2 Accessibility Standards: Complete 2026 Compliance Guide",
+      "source_url": "https://www.webability.io/blog/wcag-2-2-accessibility-standards-complete-2026-compliance-guide"
+    },
+    {
+      "id": "KB-RESTAURANT-007",
+      "section": "Customer data & loyalty",
+      "category": "nonfunctional",
+      "weight": 1.5,
+      "statement": "Collecting customer data for a loyalty/rewards program requires freely-given, specific, informed opt-in consent (GDPR), and clear disclosure of the program's material terms when a financial incentive is tied to that data (CCPA).",
+      "source_title": "GDPR and CCPA in Loyalty Programs [2025 Update]",
+      "source_url": "https://rewardtheworld.net/gdpr-and-ccpa-in-loyalty-programs-2025-update/"
+    },
+    {
+      "id": "KB-RESTAURANT-008",
+      "section": "Customer data & loyalty",
+      "category": "nonfunctional",
+      "weight": 1.5,
+      "statement": "Customers must be able to access and request deletion of the personal data the app has collected about them (GDPR right of access/erasure; CCPA right to delete).",
+      "source_title": "GDPR and CCPA in Loyalty Programs [2025 Update]",
+      "source_url": "https://rewardtheworld.net/gdpr-and-ccpa-in-loyalty-programs-2025-update/"
+    },
+    {
+      "id": "KB-RESTAURANT-009",
+      "section": "Compliance risk",
+      "category": "risk",
+      "weight": 1.0,
+      "statement": "GDPR non-compliance risk should be recorded explicitly: fines can reach €20 million or 4% of global annual turnover, whichever is higher.",
+      "source_title": "GDPR and CCPA in Loyalty Programs [2025 Update]",
+      "source_url": "https://rewardtheworld.net/gdpr-and-ccpa-in-loyalty-programs-2025-update/"
+    }
+  ]
+}

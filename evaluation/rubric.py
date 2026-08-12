@@ -53,6 +53,39 @@ DIMENSIONS: tuple[str, ...] = prompts.EVALUATION_DIMENSIONS
 #: the flat scores table.
 EVALUATION_FILENAME: str = "evaluation.json"
 
+#: Enum words from *other* structured-output schemas in this prompt
+#: library (the verification verdict, the debate arbiter's verdict).
+#: Smaller local models occasionally echo a field/enum value from a
+#: different part of their context into the wrong field instead of
+#: generating real content - the same failure mode already observed and
+#: handled in ``architectures/debate.py:_arbitrate()``. If "overall"
+#: comes back as one of these (or is otherwise too short to be a real
+#: summary sentence), the whole verdict is suspect: every case seen so
+#: far also had a numeric score inconsistent with its own justification
+#: text (e.g. score=1 next to a strongly positive justification).
+_DEGENERATE_OVERALL_VALUES = {"pass", "revision_required", "synthesis", "position_a", "position_b"}
+_MIN_OVERALL_LENGTH = 15
+
+#: Attempts (including the first) before giving up and falling back to a
+#: linter-derived proxy for a dimension the LLM kept returning a
+#: corrupted verdict for.
+_MAX_SCORE_ATTEMPTS = 3
+
+#: Deterministic proxy used only once every retry has been exhausted.
+#: "clarity" is documented elsewhere in this module as the literal
+#: inverse of ambiguity, so ambiguity_score is an exact substitute, not
+#: an approximation. "completeness" has no exact mechanical analogue -
+#: structure_score (are the required sections present and non-empty) is
+#: used as a clearly-labelled, degraded proxy rather than trusting a
+#: score the model's own justification contradicts.
+_LLM_DIMENSION_LINT_PROXY = {"clarity": "ambiguity", "completeness": "structure"}
+
+
+def _verdict_looks_corrupted(verdict: dict[str, Any]) -> bool:
+    """Detect the cross-schema field-echo failure mode in an evaluator verdict."""
+    overall = str(verdict.get("overall", "")).strip().lower()
+    return overall in _DEGENERATE_OVERALL_VALUES or len(overall) < _MIN_OVERALL_LENGTH
+
 
 def _dimension_from_lint(
     score_0_1: float, lint_issues: list[LintIssue], category: str,
@@ -98,28 +131,64 @@ class EvaluatorAgent(Agent):
     role_name = "evaluator"
     role_system_prompt = prompts.EVALUATOR_SYSTEM
 
-    def score(self, description: str, srs_markdown: str) -> dict[str, Any]:
+    def score(
+        self,
+        description: str,
+        srs_markdown: str,
+        *,
+        architecture: str,
+        logger: ExperimentLogger,
+    ) -> dict[str, Any]:
         """Score an SRS document against the rubric.
+
+        Retries up to :data:`_MAX_SCORE_ATTEMPTS` times if the verdict shows
+        the cross-schema field-echo failure mode (see
+        :func:`_verdict_looks_corrupted`). Returns whatever the last
+        attempt produced if every attempt is corrupted; the caller falls
+        back to a deterministic proxy in that case (see :func:`score_srs`).
 
         Args:
             description: The original natural-language description; supplied
                 so the evaluator can judge completeness against the input.
             srs_markdown: The full SRS Markdown to score.
+            architecture: The architecture whose SRS is being scored, for
+                log messages only (``self.context.architecture`` is always
+                the fixed ``"evaluation"`` protocol placeholder).
+            logger: Run logger, so a retry or an exhausted-retries fallback
+                is always recorded, never silent.
 
         Returns:
             The parsed verdict as a dictionary matching
             :data:`~config.prompts.EVALUATION_SCHEMA`.
         """
-        result = self._call(
-            phase="score",
-            user_prompt=prompts.evaluator_user_prompt(description, srs_markdown),
-            output_schema=prompts.EVALUATION_SCHEMA,
+        verdict: dict[str, Any] = {}
+        for attempt in range(1, _MAX_SCORE_ATTEMPTS + 1):
+            result = self._call(
+                phase="score" if attempt == 1 else f"score_retry_{attempt - 1}",
+                user_prompt=prompts.evaluator_user_prompt(description, srs_markdown),
+                output_schema=prompts.EVALUATION_SCHEMA,
+            )
+            assert isinstance(result.parsed_json, dict), (
+                "Evaluator was requested to return a JSON object but the "
+                "parsed response was not a dict; this is a logic error."
+            )
+            verdict = result.parsed_json
+            if not _verdict_looks_corrupted(verdict):
+                return verdict
+            logger.warning(
+                "[evaluator/%s case=%s rep=%d] attempt %d/%d returned a "
+                "corrupted verdict (overall=%r) - retrying",
+                architecture, self._context.case_id, self._context.repetition,
+                attempt, _MAX_SCORE_ATTEMPTS, verdict.get("overall"),
+            )
+        logger.warning(
+            "[evaluator/%s case=%s rep=%d] all %d attempts returned a "
+            "corrupted verdict - falling back to linter-derived "
+            "completeness/clarity",
+            architecture, self._context.case_id, self._context.repetition,
+            _MAX_SCORE_ATTEMPTS,
         )
-        assert isinstance(result.parsed_json, dict), (
-            "Evaluator was requested to return a JSON object but the "
-            "parsed response was not a dict; this is a logic error."
-        )
-        return result.parsed_json
+        return verdict
 
 
 # --------------------------------------------------------------------------
@@ -222,6 +291,36 @@ class EvaluationRecord:
             self.justifications[dim] = justification
             self.issues[dim] = issues
 
+    def apply_llm_dimension_fallback(self, lint_result: LintResult) -> None:
+        """Overwrite completeness/clarity with a linter-derived proxy.
+
+        Only called when :func:`score_srs` sees the LLM verdict for these
+        two dimensions kept showing the cross-schema field-echo failure
+        mode after every retry (see :func:`_verdict_looks_corrupted`) - a
+        deterministic proxy that is honestly labelled as degraded is safer
+        than trusting a score the model's own justification contradicts.
+
+        Args:
+            lint_result: The Layer-1 lint result for the same SRS this
+                record scores.
+        """
+        self.overall = (
+            "(LLM evaluator verdict discarded as corrupted after "
+            f"{_MAX_SCORE_ATTEMPTS} attempts — completeness/clarity below are "
+            "a deterministic linter-derived fallback, not an LLM judgement.)"
+        )
+        for dim, lint_category in _LLM_DIMENSION_LINT_PROXY.items():
+            score_0_1 = getattr(lint_result, f"{lint_category}_score")
+            score_1_5 = max(1, min(5, round(1 + 4 * score_0_1)))
+            self.scores[dim] = score_1_5
+            self.justifications[dim] = (
+                f"LLM evaluator verdict was corrupted after "
+                f"{_MAX_SCORE_ATTEMPTS} attempts (see run log); falling back "
+                f"to a deterministic proxy from linter {lint_category}_score "
+                f"({score_0_1:.0%})."
+            )
+            self.issues[dim] = ["LLM evaluator response discarded — see justification."]
+
 
 # --------------------------------------------------------------------------
 # Entry points
@@ -236,6 +335,7 @@ def score_srs(
     description: str,
     srs_markdown: str,
     client: LLMClient,
+    logger: ExperimentLogger,
 ) -> EvaluationRecord:
     """Score one SRS and return an :class:`EvaluationRecord`.
 
@@ -246,6 +346,8 @@ def score_srs(
         description: The original natural-language description.
         srs_markdown: The SRS Markdown to score.
         client: The shared LLM client.
+        logger: Run logger, passed through to :meth:`EvaluatorAgent.score`
+            so a retry or a corrupted-verdict fallback is always recorded.
 
     Returns:
         A populated :class:`EvaluationRecord`.
@@ -263,7 +365,9 @@ def score_srs(
         protocol_block=prompts.ARCHITECTURE_PROTOCOL_BASELINE,
     )
     evaluator = EvaluatorAgent(client, context)
-    verdict = evaluator.score(description, srs_markdown)
+    verdict = evaluator.score(
+        description, srs_markdown, architecture=architecture, logger=logger,
+    )
     record = EvaluationRecord.from_verdict(
         case_id=case_id, architecture=architecture,
         repetition=repetition, verdict=verdict,
@@ -274,6 +378,9 @@ def score_srs(
     requirements = parse_requirements(srs_markdown)
     lint_result = lint_srs(srs_markdown, requirements)
     record.apply_lint(lint_result)
+
+    if _verdict_looks_corrupted(verdict):
+        record.apply_llm_dimension_fallback(lint_result)
 
     return record
 

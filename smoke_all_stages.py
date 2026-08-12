@@ -368,7 +368,7 @@ with ExperimentLogger.for_run(settings) as logger:
             case_id=cid, architecture=arch, repetition=rep,
             description=get_case(cid).description,
             srs_markdown=p.read_text(),
-            client=client,
+            client=client, logger=logger,
         )
         records.append(rec)
     write_evaluation(records, run_dir / "evaluation.json")

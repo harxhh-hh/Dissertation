@@ -601,7 +601,7 @@ def _run_evaluation(
             record = score_srs(
                 case_id=case_id, architecture=architecture, repetition=repetition,
                 description=case_by_id[case_id].description,
-                srs_markdown=srs_markdown, client=client,
+                srs_markdown=srs_markdown, client=client, logger=logger,
             )
         except Exception as exc:  # noqa: BLE001
             logger.error(

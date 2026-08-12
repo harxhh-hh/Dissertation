@@ -44,6 +44,7 @@ Design notes worth flagging for a reviewer:
 from __future__ import annotations
 
 import json
+import time
 import urllib.error
 import urllib.request
 from abc import ABC, abstractmethod
@@ -428,22 +429,52 @@ class OllamaBackend(LLMBackend):
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        try:
-            with urllib.request.urlopen(
-                request, timeout=settings.request_timeout_seconds
-            ) as response:
-                raw = response.read()
-        except urllib.error.HTTPError as exc:
-            error_body = exc.read().decode("utf-8", errors="replace")
+        # Unlike the Anthropic/Groq backends, this one talks to Ollama over
+        # bare urllib rather than a vendor SDK, so it doesn't get automatic
+        # retry-on-transient-failure "for free" the way the other two do
+        # from ``max_retries=`` on their SDK client constructors. A single
+        # slow/overloaded local Ollama instance would otherwise permanently
+        # fail an entire architecture attempt (observed in practice with the
+        # ``debate`` architecture, which issues the most calls per case) on
+        # what is often just one bad request. Retry connection-level
+        # failures and 5xx responses up to ``settings.max_retries`` times
+        # with a short linear backoff; 4xx responses are not retried since
+        # those indicate a genuinely bad request, not a transient failure.
+        raw: bytes | None = None
+        last_exc: Exception | None = None
+        attempts = max(1, settings.max_retries + 1)
+        for attempt in range(1, attempts + 1):
+            try:
+                with urllib.request.urlopen(
+                    request, timeout=settings.request_timeout_seconds
+                ) as response:
+                    raw = response.read()
+                break
+            except urllib.error.HTTPError as exc:
+                error_body = exc.read().decode("utf-8", errors="replace")
+                if exc.code < 500 or attempt == attempts:
+                    raise OllamaAPIError(
+                        f"Ollama returned HTTP {exc.code} for model "
+                        f"{settings.ollama_model!r}: {error_body}",
+                        status_code=exc.code,
+                    ) from exc
+                last_exc = exc
+            except (urllib.error.URLError, OSError) as exc:
+                if attempt == attempts:
+                    raise OllamaAPIError(
+                        f"Could not reach Ollama at {self._base_url!r} after "
+                        f"{attempts} attempt(s): {exc}"
+                    ) from exc
+                last_exc = exc
+            time.sleep(min(2 * attempt, 10))
+        if raw is None:
+            # Unreachable in practice (the loop above always either
+            # succeeds or raises on the final attempt), but keeps type
+            # checkers and readers honest about the loop's contract.
             raise OllamaAPIError(
-                f"Ollama returned HTTP {exc.code} for model "
-                f"{settings.ollama_model!r}: {error_body}",
-                status_code=exc.code,
-            ) from exc
-        except (urllib.error.URLError, OSError) as exc:
-            raise OllamaAPIError(
-                f"Could not reach Ollama at {self._base_url!r}: {exc}"
-            ) from exc
+                f"Could not reach Ollama at {self._base_url!r} after "
+                f"{attempts} attempt(s): {last_exc}"
+            ) from last_exc
 
         data = json.loads(raw)
         text = (data.get("message") or {}).get("content", "") or ""
